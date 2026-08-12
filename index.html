@@ -43,6 +43,8 @@ button{margin:6px 5px;padding:13px 24px;background:#e48585;color:#ffffff;border:
 button:hover{background:#c5898c;transform:translateY(-1px);box-shadow:0 14px 30px rgba(37,99,235,.18);}
 button.secondary{background:#f8fafc;color:#0f172a;}
 button.secondary:hover{background:#e2e8f0;}
+button.danger{background:#dc2626;color:#ffffff;}
+button.danger:hover{background:#b91c1c;}
 .button-row{display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end;align-items:center;margin-top:18px;}
 .hidden{display:none;}
 .signature-preview{max-width:100%;max-height:140px;margin-top:10px;border:1px solid #cbd5e1;background:#ffffff;padding:10px;border-radius:18px;display:none;}
@@ -554,88 +556,39 @@ button.secondary:hover{background:#e2e8f0;}
     }
   }
 
-  function downloadSavedEntriesPdf(formId) {
-    const entries = lastSavedEntries[formId] || [];
-    if (!entries.length) {
-      alert('No hay registros para descargar.');
-      return;
+  async function deleteSavedEntry(formId, entryId) {
+    if (!confirm('¿Eliminar este registro? Esta acción no se puede deshacer.')) return;
+    const collectionName = getCollectionName(formId);
+    if (!collectionName) return;
+    try {
+      await db.collection(collectionName).doc(entryId).delete();
+      lastSavedEntries[formId] = lastSavedEntries[formId].filter(entry => entry.id !== entryId);
+      loadSavedEntries(formId);
+    } catch (error) {
+      console.error('Error eliminando registro:', error);
+      alert('No se pudo eliminar el registro. Revisa la consola.');
     }
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-    const title = formId === 'f1' ? 'Evaluaciones Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluaciones de Compras';
+  }
 
-    entries.forEach((entry, index) => {
-      if (index > 0) doc.addPage();
-
-      const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
-
-      // Header banner
-      doc.setFillColor(37, 99, 235);
-      doc.rect(0, 0, 612, 72, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18);
-      doc.setFont(undefined, 'bold');
-      doc.text(title, 40, 38);
-      doc.setFontSize(10);
-      doc.setFont(undefined, 'normal');
-      doc.text(`Registro ${index + 1} - ID: ${entry.id}`, 40, 54);
-      doc.text(`Guardado: ${savedAt}`, 300, 54);
-
-      let y = 100;
-      const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
-      rows.forEach(key => {
-        if (y > 700) {
-          doc.addPage();
-          y = 50;
-          doc.setFillColor(37, 99, 235);
-          doc.rect(0, 0, 612, 52, 'F');
-          doc.setTextColor(255, 255, 255);
-          doc.setFontSize(14);
-          doc.setFont(undefined, 'bold');
-          doc.text(title, 40, 38);
-          doc.setTextColor(0, 0, 0);
-          y = 70;
-        }
-
-        const label = getFieldLabel(key);
-        const rawValue = entry.data[key];
-
-        if (key.endsWith('_signature') && typeof rawValue === 'string' && rawValue.startsWith('data:image')) {
-          doc.setFontSize(11);
-          doc.setFont(undefined, 'bold');
-          doc.setTextColor(20, 20, 20);
-          doc.text(`${label}:`, 40, y);
-          y += 18;
-          const imgHeight = 120;
-          const imgWidth = 260;
-          if (y + imgHeight > 700) {
-            doc.addPage();
-            y = 50;
-          }
-          doc.addImage(rawValue, 'JPEG', 40, y, imgWidth, imgHeight);
-          y += imgHeight + 16;
-          return;
-        }
-
-        const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
-        const lines = doc.splitTextToSize(value, 430);
-        doc.setFontSize(11);
-        doc.setFont(undefined, 'bold');
-        doc.setTextColor(20, 20, 20);
-        doc.text(`${label}:`, 40, y);
-        doc.setFont(undefined, 'normal');
-        doc.setTextColor(50, 50, 50);
-        doc.text(lines, 150, y);
-        y += lines.length * 16 + 10;
-      });
-
-      doc.setDrawColor(206, 214, 224);
-      doc.setLineWidth(0.75);
-      doc.line(40, y, 572, y);
-    });
-
-    const filename = `${formId}_registros_${new Date().toISOString().slice(0,10)}.pdf`;
-    doc.save(filename);
+  async function deleteAllSavedEntries(formId) {
+    if (!confirm('¿Eliminar todos los registros guardados?')) return;
+    const collectionName = getCollectionName(formId);
+    if (!collectionName) return;
+    try {
+      const entries = lastSavedEntries[formId] || [];
+      if (!entries.length) {
+        alert('No hay registros para eliminar.');
+        return;
+      }
+      const batch = db.batch();
+      entries.forEach(entry => batch.delete(db.collection(collectionName).doc(entry.id)));
+      await batch.commit();
+      lastSavedEntries[formId] = [];
+      loadSavedEntries(formId);
+    } catch (error) {
+      console.error('Error eliminando todos los registros:', error);
+      alert('No se pudieron eliminar todos los registros. Revisa la consola.');
+    }
   }
 
   function renderSavedEntries(formId, docs) {
@@ -655,6 +608,7 @@ button.secondary:hover{background:#e2e8f0;}
           <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
             <button type="button" class="secondary" onclick="viewSavedEntry('${formId}','${doc.id}')">Ver página</button>
             <button type="button" onclick="downloadSavedEntryPdf('${formId}','${doc.id}')">Descargar PDF</button>
+            <button type="button" class="danger" onclick="deleteSavedEntry('${formId}','${doc.id}')">Eliminar</button>
           </div>
         </div>`;
     }).join('');
@@ -827,6 +781,7 @@ button.secondary:hover{background:#e2e8f0;}
     <label>Hasta <input type="date" id="f1_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f1')">Actualizar</button>
     <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f1')">Descargar PDF</button>
+    <button type="button" class="danger" onclick="deleteAllSavedEntries('f1')">Eliminar todos</button>
   </div>
   <div id="f1_saved_list"></div>
 </div>
@@ -911,6 +866,7 @@ button.secondary:hover{background:#e2e8f0;}
     <label>Hasta <input type="date" id="f2_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f2')">Actualizar</button>
     <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f2')">Descargar PDF</button>
+    <button type="button" class="danger" onclick="deleteAllSavedEntries('f2')">Eliminar todos</button>
   </div>
   <div id="f2_saved_list"></div>
 </div>
@@ -1012,6 +968,7 @@ button.secondary:hover{background:#e2e8f0;}
     <label>Hasta <input type="date" id="f3_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f3')">Actualizar</button>
     <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f3')">Descargar PDF</button>
+    <button type="button" class="danger" onclick="deleteAllSavedEntries('f3')">Eliminar todos</button>
   </div>
   <div id="f3_saved_list"></div>
 </div>
