@@ -61,6 +61,7 @@ button.secondary:hover{background:#e2e8f0;}
 .formato table th{background:#2563eb;color:#fff;}
 .formato table td{border-color:#e2e8f0;}
 .line input{background:transparent;border:none;padding:0 8px;}
+.diag-btn{position:fixed;right:18px;bottom:18px;padding:10px 14px;background:#2563eb;color:#fff;border:none;border-radius:12px;cursor:pointer;box-shadow:0 8px 20px rgba(37,99,235,.18);z-index:9999}
 @media (max-width:880px){
   .company-header{grid-template-columns:1fr;}
 }
@@ -73,6 +74,7 @@ button.secondary:hover{background:#e2e8f0;}
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyDOhkubFKg4FxOqEsgD06RDN4jS_gGANQk",
@@ -87,30 +89,232 @@ button.secondary:hover{background:#e2e8f0;}
   const auth = firebase.auth();
   const db = firebase.firestore();
   let currentUser = null;
+  let firebaseAuthError = null;
+  let firebaseInitPromise = null;
   const lastSavedEntries = { f1: [], f2: [], f3: [] };
 
-  auth.signInAnonymously().catch(error => {
-    console.error('Firebase auth error:', error);
-  });
+  function updateFirebaseStatus(message, isError = false) {
+    const statusEl = document.getElementById('firebase_status');
+    if (statusEl) {
+      statusEl.textContent = message;
+      statusEl.style.color = isError ? '#dc2626' : '#2563eb';
+    }
+  }
 
-  auth.onAuthStateChanged(user => {
-    currentUser = user;
-    console.log('Firebase auth user:', user ? user.uid : 'no user');
-  });
+  function isFileProtocol() {
+    return window.location.protocol === 'file:';
+  }
+
+  function initFirebaseAuthListener() {
+    auth.onAuthStateChanged(user => {
+      currentUser = user;
+      console.log('Firebase auth state:', user ? user.uid : 'no user');
+      if (user) {
+        updateFirebaseStatus('Firebase conectado. UID: ' + user.uid);
+      } else if (!firebaseAuthError) {
+        updateFirebaseStatus('Esperando autenticación Firebase...');
+      }
+    });
+  }
+
+  async function initializeFirebaseAuth() {
+    if (firebaseInitPromise) return firebaseInitPromise;
+
+    firebaseInitPromise = (async () => {
+      if (isFileProtocol()) {
+        const msg = 'Abre esta página desde http://localhost o desde un hosting, no desde file://.';
+        firebaseAuthError = new Error(msg);
+        updateFirebaseStatus(msg, true);
+        console.error(msg);
+        return false;
+      }
+
+      updateFirebaseStatus('Iniciando Firebase...');
+      auth.useDeviceLanguage();
+      initFirebaseAuthListener();
+
+      try {
+        const credential = await auth.signInAnonymously();
+        currentUser = credential.user;
+        if (currentUser) {
+          updateFirebaseStatus('Firebase conectado. UID: ' + currentUser.uid);
+          return true;
+        }
+        throw new Error('No se obtuvo usuario anónimo.');
+      } catch (error) {
+        firebaseAuthError = error;
+        updateFirebaseStatus('Error auth Firebase: ' + error.message, true);
+        console.error('Firebase anonymous auth failed:', error);
+        return false;
+      }
+    })();
+
+    return firebaseInitPromise;
+  }
+
+  async function ensureFirebaseAuth() {
+    if (currentUser) return true;
+    if (firebaseAuthError) return false;
+    return await initializeFirebaseAuth();
+  }
+
+  initializeFirebaseAuth();
 
   async function saveFormToFirebase(collectionName, formData) {
-    if (!currentUser) {
-      console.error('No Firebase auth user available yet');
-      return false;
+    const authOk = await ensureFirebaseAuth();
+    if (!authOk || !currentUser) {
+      const msg = firebaseAuthError?.message || 'No Firebase auth user available yet or anonymous auth failed';
+      console.error(msg, firebaseAuthError);
+      updateFirebaseStatus('No se puede guardar: ' + msg, true);
+      return { ok: false, error: msg };
     }
     try {
       formData.savedAt = firebase.firestore.FieldValue.serverTimestamp();
-      await db.collection(collectionName).add(formData);
-      return true;
+      const ref = await db.collection(collectionName).add(formData);
+      return { ok: true, id: ref.id };
     } catch (error) {
       console.error('Firebase save error:', error);
-      return false;
+      const errMsg = (error && error.message) ? error.message : String(error);
+      updateFirebaseStatus('Error al guardar: ' + errMsg, true);
+      return { ok: false, error: errMsg };
     }
+  }
+
+  function getFieldLabel(key) {
+    const labels = {
+      f1_nombre: 'Nombre',
+      f1_fecha: 'Fecha',
+      f1_ubicacion: 'Ubicación',
+      f1_tel: 'Teléfono',
+      f1_obs: 'Observaciones',
+      f1_calidad: 'Calidad',
+      f1_oportunidad: 'Oportunidad',
+      f1_atencion_sugerencias: 'Atención - sugerencias',
+      f1_atencion_responde: 'Atención - responde',
+      f1_atencion_cumplimiento: 'Atención - cumplimiento social',
+      f1_total_score: 'Total',
+      f1_signature: 'Firma digital',
+      f2_razon: 'Razón social',
+      f2_nit: 'NIT',
+      f2_nombre: 'Nombre',
+      f2_fecha: 'Fecha',
+      f2_ubicacion: 'Ubicación',
+      f2_tel: 'Teléfono',
+      f2_spec: 'Cumple especificaciones',
+      f2_puntual: 'Puntualidad',
+      f2_atencion: 'Atención',
+      f2_spec_score: 'Especificaciones (%)',
+      f2_puntual_score: 'Puntualidad (%)',
+      f2_atencion_score: 'Atención (%)',
+      f2_eval_interior: 'Evaluación interior',
+      f2_eval_seguimiento: 'Evaluación seguimiento',
+      f2_reval: 'Revaluación',
+      f2_signature: 'Firma digital',
+      f3_nombre: 'Nombre',
+      f3_ubicacion: 'Ubicación',
+      f3_fecha: 'Fecha',
+      f3_tel: 'Teléfono',
+      f3_obs: 'Observaciones',
+      f3_calidad: 'Calidad',
+      f3_oport_entrega: 'Oportunidad - entrega',
+      f3_oport_cantidad: 'Oportunidad - cantidad',
+      f3_oport_unidades: 'Oportunidad - unidades',
+      f3_atencion: 'Atención',
+      f3_total_score: 'Total',
+      f3_signature: 'Firma digital'
+    };
+    return labels[key] || key;
+  }
+
+  function buildPrintableHtml(formId, data) {
+    const title = formId === 'f1' ? 'Evaluación Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluación de Compras';
+    const rows = Object.keys(data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+    const fieldsHtml = rows.map(key => {
+      const rawValue = data[key];
+      const value = rawValue === undefined || rawValue === '' ? '&nbsp;' : String(rawValue).replace(/\n/g, '<br>');
+      if (key.endsWith('_signature') && value.startsWith('data:image')) {
+        return `<tr><td style="padding:12px 14px;border:1px solid #d1d5db;background:#f8fafc;font-weight:700;">${getFieldLabel(key)}</td><td style="padding:12px 14px;border:1px solid #d1d5db;"><img src="${value}" style="max-width:320px;max-height:220px;border-radius:12px;border:1px solid #cbd5e1;"></td></tr>`;
+      }
+      return `<tr><td style="padding:12px 14px;border:1px solid #d1d5db;background:#f8fafc;font-weight:700;width:30%;">${getFieldLabel(key)}</td><td style="padding:12px 14px;border:1px solid #d1d5e;color:#1f2937;">${value}</td></tr>`;
+    }).join('');
+    const savedAt = data.savedAt && data.savedAt.toDate ? data.savedAt.toDate().toLocaleString() : data.savedAtLocal || '';
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${title}</title><style>body{font-family:Inter,system-ui,Arial,sans-serif;margin:24px;color:#111827;background:#f8fafc;}header{padding:24px 24px 18px;border-radius:24px;background:linear-gradient(135deg,#2563eb,#5b21b6);color:#fff;margin-bottom:24px;box-shadow:0 18px 40px rgba(15,23,42,.12);}h1{margin:0;font-size:28px;letter-spacing:.02em;}p{margin:10px 0 0;font-size:14px;opacity:.88;}table{width:100%;border-collapse:collapse;margin-top:24px;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08);}td{vertical-align:top;font-size:13px;color:#1f2937;}tr:nth-child(even) td{background:#f8fafc;} .footer{margin-top:26px;font-size:0.95rem;color:#475569;} .print-button{display:inline-flex;align-items:center;gap:10px;margin-top:18px;padding:12px 18px;background:#2563eb;color:#fff;border:none;border-radius:14px;cursor:pointer;font-weight:700;text-decoration:none;} .info-box{margin-top:16px;padding:18px 20px;border-radius:20px;background:#eef2ff;color:#1e40af;box-shadow:0 10px 25px rgba(37,99,235,.12);font-size:0.95rem;}</style></head><body><header><h1>${title}</h1><p>Documento oficial de registro guardado en Firebase.</p></header><div class="info-box">Guardado: ${savedAt}</div><table>${fieldsHtml}</table><div class="footer">Si desea conservar este formulario, use el botón de impresión del navegador y elija “Guardar como PDF”.</div><button class="print-button" onclick="window.print()">Imprimir / Guardar como PDF</button></body></html>`;
+  }
+
+  function openPrintableRecord(formId, data) {
+    const w = window.open('', '_blank');
+    if (!w) {
+      alert('No se pudo abrir la ventana de vista previa. Revisa bloqueadores de ventanas emergentes.');
+      return;
+    }
+    w.document.write(buildPrintableHtml(formId, data));
+    w.document.close();
+  }
+
+  function findSavedEntry(formId, entryId) {
+    const entries = lastSavedEntries[formId] || [];
+    return entries.find(entry => entry.id === entryId);
+  }
+
+  function viewSavedEntry(formId, entryId) {
+    const entry = findSavedEntry(formId, entryId);
+    if (!entry) {
+      alert('Registro no encontrado. Actualiza la lista y vuelve a intentar.');
+      return;
+    }
+    openPrintableRecord(formId, entry.data);
+  }
+
+  async function downloadSavedEntryPdf(formId, entryId) {
+    const entry = findSavedEntry(formId, entryId);
+    if (!entry) {
+      alert('Registro no encontrado para PDF. Actualiza la lista y vuelve a intentar.');
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const title = formId === 'f1' ? 'Evaluación Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluación de Compras';
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.text(title, 40, 50);
+    doc.setFont(undefined, 'normal');
+    const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
+    doc.setFontSize(10);
+    doc.text(`Guardado: ${savedAt}`, 40, 70);
+    let y = 100;
+    const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+    for (const key of rows) {
+      if (y > 700) {
+        doc.addPage();
+        y = 50;
+      }
+      const label = getFieldLabel(key);
+      const rawValue = entry.data[key];
+      if (key.endsWith('_signature') && typeof rawValue === 'string' && rawValue.startsWith('data:image')) {
+        const image = rawValue;
+        doc.setFont(undefined, 'bold');
+        doc.text(label + ':', 40, y);
+        y += 24;
+        const imgWidth = 240;
+        const imgHeight = 120;
+        if (y + imgHeight > 720) {
+          doc.addPage();
+          y = 50;
+        }
+        doc.addImage(image, 'JPEG', 40, y, imgWidth, imgHeight);
+        y += imgHeight + 14;
+        continue;
+      }
+      const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
+      doc.setFont(undefined, 'bold');
+      doc.text(label + ':', 40, y);
+      doc.setFont(undefined, 'normal');
+      const split = doc.splitTextToSize(value, 450);
+      doc.text(split, 150, y);
+      y += split.length * 14 + 10;
+    }
+    const filename = `${formId}_registro_${entry.id}.pdf`;
+    doc.save(filename);
   }
 
   function getFormData(formId) {
@@ -193,28 +397,57 @@ button.secondary:hover{background:#e2e8f0;}
     }
   }
 
-  function downloadSavedEntries(formId) {
+  function downloadSavedEntriesPdf(formId) {
     const entries = lastSavedEntries[formId] || [];
     if (!entries.length) {
       alert('No hay registros para descargar.');
       return;
     }
-    const data = entries.map(entry => {
-      const record = { id: entry.id, ...entry.data };
-      if (record.savedAt && record.savedAt.toDate) {
-        record.savedAt = record.savedAt.toDate().toISOString();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const title = formId === 'f1' ? 'Evaluaciones Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluaciones de Compras';
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.text(title, 40, 50);
+    let y = 80;
+    entries.forEach((entry, index) => {
+      if (y > 700) {
+        doc.addPage();
+        y = 50;
       }
-      return record;
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.text(`Registro ${index + 1} - ID: ${entry.id}`, 40, y);
+      y += 18;
+      const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Guardado: ${savedAt}`, 40, y);
+      y += 16;
+      const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+      rows.forEach(key => {
+        if (y > 700) {
+          doc.addPage();
+          y = 50;
+        }
+        const label = getFieldLabel(key);
+        const rawValue = entry.data[key];
+        const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${label}:`, 40, y);
+        doc.setFont(undefined, 'normal');
+        const split = doc.splitTextToSize(value, 450);
+        doc.text(split, 150, y);
+        y += split.length * 14 + 8;
+      });
+      y += 12;
+      doc.setDrawColor(220, 226, 243);
+      doc.setLineWidth(0.5);
+      doc.line(40, y, 555, y);
+      y += 14;
     });
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${formId}_registros_${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const filename = `${formId}_registros_${new Date().toISOString().slice(0,10)}.pdf`;
+    doc.save(filename);
   }
 
   function renderSavedEntries(formId, docs) {
@@ -231,6 +464,10 @@ button.secondary:hover{background:#e2e8f0;}
         <div class="entry-card">
           <strong>${getSavedEntryTitle(formId, data)}</strong>
           <div style="margin-top:10px;line-height:1.5;">${getSavedEntryDetails(formId, data)}<br><small>${savedAt}</small></div>
+          <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+            <button type="button" class="secondary" onclick="viewSavedEntry('${formId}','${doc.id}')">Ver página</button>
+            <button type="button" onclick="downloadSavedEntryPdf('${formId}','${doc.id}')">Descargar PDF</button>
+          </div>
         </div>`;
     }).join('');
     container.innerHTML = `<div class="entry-list">${html}</div>`;
@@ -304,6 +541,7 @@ button.secondary:hover{background:#e2e8f0;}
 </header>
 
 <div class="container">
+<div id="firebase_status" class="status" style="margin-bottom:18px;"></div>
 
 <div class="company-header">
   <div class="company-logo"><img src="logo.jpg" alt="Carmelitas Misioneras" style="max-width:100%; max-height:88px; display:block;" onerror="this.style.display='none'; this.parentNode.textContent='Logo'"/></div>
@@ -400,7 +638,7 @@ button.secondary:hover{background:#e2e8f0;}
     <label>Desde <input type="date" id="f1_start_date"></label>
     <label>Hasta <input type="date" id="f1_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f1')">Actualizar</button>
-    <button type="button" class="download-button" onclick="downloadSavedEntries('f1')">Descargar JSON</button>
+    <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f1')">Descargar PDF</button>
   </div>
   <div id="f1_saved_list"></div>
 </div>
@@ -484,7 +722,7 @@ button.secondary:hover{background:#e2e8f0;}
     <label>Desde <input type="date" id="f2_start_date"></label>
     <label>Hasta <input type="date" id="f2_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f2')">Actualizar</button>
-    <button type="button" class="download-button" onclick="downloadSavedEntries('f2')">Descargar JSON</button>
+    <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f2')">Descargar PDF</button>
   </div>
   <div id="f2_saved_list"></div>
 </div>
@@ -585,7 +823,7 @@ button.secondary:hover{background:#e2e8f0;}
     <label>Desde <input type="date" id="f3_start_date"></label>
     <label>Hasta <input type="date" id="f3_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f3')">Actualizar</button>
-    <button type="button" class="download-button" onclick="downloadSavedEntries('f3')">Descargar JSON</button>
+    <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f3')">Descargar PDF</button>
   </div>
   <div id="f3_saved_list"></div>
 </div>
@@ -696,46 +934,61 @@ function saveFormLocalStorage(formId){
 }
 
 async function saveFormF1(){
+ const formData = getFormData('f1');
  saveFormLocalStorage('f1');
  const status=document.getElementById('f1_save_status');
  status.innerText='Guardando en Firebase...';
- const saved = await saveFormToFirebase('evaluaciones_prestador_servicios', getFormData('f1'));
- if (saved) {
+ const result = await saveFormToFirebase('evaluaciones_prestador_servicios', formData);
+ if (result && result.ok) {
    status.innerText = 'Guardado en Firebase ✓';
+   formData.savedAtLocal = new Date().toISOString();
+   openPrintableRecord('f1', formData);
    resetF1();
    loadSavedEntries('f1');
  } else {
-   status.innerText = 'Error al guardar en Firebase';
+   const msg = result && result.error ? result.error : 'Error al guardar en Firebase';
+   status.innerText = 'Error: ' + msg;
+   console.error('saveFormF1 error:', msg);
  }
  setTimeout(()=>{status.innerText='';}, 4000);
 }
 
 async function saveFormF2(){
+ const formData = getFormData('f2');
  saveFormLocalStorage('f2');
  const status=document.getElementById('f2_save_status');
  status.innerText='Guardando en Firebase...';
- const saved = await saveFormToFirebase('seguimiento_proveedores', getFormData('f2'));
- if (saved) {
+ const result = await saveFormToFirebase('seguimiento_proveedores', formData);
+ if (result && result.ok) {
    status.innerText = 'Guardado en Firebase ✓';
+   formData.savedAtLocal = new Date().toISOString();
+   openPrintableRecord('f2', formData);
    resetF2();
    loadSavedEntries('f2');
  } else {
-   status.innerText = 'Error al guardar en Firebase';
+   const msg = result && result.error ? result.error : 'Error al guardar en Firebase';
+   status.innerText = 'Error: ' + msg;
+   console.error('saveFormF2 error:', msg);
  }
  setTimeout(()=>{status.innerText='';}, 4000);
 }
 
 async function saveFormF3(){
+ const formData = getFormData('f3');
  saveFormLocalStorage('f3');
  const status=document.getElementById('f3_save_status');
  status.innerText='Guardando en Firebase...';
- const saved = await saveFormToFirebase('evaluacion_compras', getFormData('f3'));
- if (saved) {
+ const result = await saveFormToFirebase('evaluacion_compras', formData);
+ if (result && result.ok) {
    status.innerText = 'Guardado en Firebase ✓';
+   formData.savedAtLocal = new Date().toISOString();
+   openPrintableRecord('f3', formData);
    resetF3();
    loadSavedEntries('f3');
  } else {
-   status.innerText = 'Error al guardar en Firebase';
+   const msg = result && result.error ? result.error : 'Error al guardar en Firebase';
+   status.innerText = 'Error: ' + msg;
+   console.error('saveFormF3 error:', msg);
  }
  setTimeout(()=>{status.innerText='';}, 4000);
 }
@@ -870,7 +1123,36 @@ window.addEventListener('DOMContentLoaded', () => {
   loadFormLocalStorage();
 });
 
+async function testFirebaseConnection(){
+  try{
+    const statusMsg = document.createElement('div');
+    const result = await saveFormToFirebase('diagnostic', { test: 'ping', ts: new Date().toISOString() });
+    if (result && result.ok) {
+      alert('Conexión OK — documento creado: ' + result.id);
+      console.log('Diagnostic write OK', result);
+      return true;
+    } else {
+      const msg = result && result.error ? result.error : 'Error desconocido';
+      alert('Error al conectar con Firebase: ' + msg);
+      console.error('Diagnostic error', result);
+      return false;
+    }
+  } catch(e){
+    alert('Excepción al probar Firebase: ' + (e && e.message ? e.message : String(e)));
+    console.error('Exception testing Firebase', e);
+    return false;
+  }
+}
+
+// add a small diagnostic button to the page
+const diagBtn = document.createElement('button');
+diagBtn.textContent = 'Probar Firebase';
+diagBtn.className = 'diag-btn';
+diagBtn.onclick = testFirebaseConnection;
+document.addEventListener('DOMContentLoaded', ()=>{ document.body.appendChild(diagBtn); });
+
 </script>
 
 </body>
 </html>
+
