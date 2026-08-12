@@ -226,9 +226,41 @@ button.secondary:hover{background:#e2e8f0;}
     return labels[key] || key;
   }
 
+  function getFieldOrder(formId) {
+    if (formId === 'f1') {
+      return [
+        'f1_nombre', 'f1_fecha', 'f1_ubicacion', 'f1_tel', 'f1_obs',
+        'f1_calidad', 'f1_oportunidad', 'f1_atencion_sugerencias',
+        'f1_atencion_responde', 'f1_atencion_cumplimiento', 'f1_total_score', 'f1_signature'
+      ];
+    }
+    if (formId === 'f2') {
+      return [
+        'f2_razon', 'f2_nit', 'f2_nombre', 'f2_fecha', 'f2_ubicacion', 'f2_tel',
+        'f2_spec', 'f2_puntual', 'f2_atencion',
+        'f2_spec_score', 'f2_puntual_score', 'f2_atencion_score',
+        'f2_eval_interior', 'f2_eval_seguimiento', 'f2_reval', 'f2_signature'
+      ];
+    }
+    if (formId === 'f3') {
+      return [
+        'f3_nombre', 'f3_ubicacion', 'f3_fecha', 'f3_tel', 'f3_obs',
+        'f3_calidad', 'f3_oport_entrega', 'f3_oport_cantidad',
+        'f3_oport_unidades', 'f3_atencion', 'f3_total_score', 'f3_signature'
+      ];
+    }
+    return [];
+  }
+
+  function getOrderedFields(formId, data) {
+    const orderedKeys = getFieldOrder(formId).filter(key => key in data);
+    const extraKeys = Object.keys(data).filter(key => !['formId', 'savedAtLocal', 'savedAt'].includes(key) && !orderedKeys.includes(key));
+    return [...orderedKeys, ...extraKeys];
+  }
+
   function buildPrintableHtml(formId, data) {
     const title = formId === 'f1' ? 'Evaluación Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluación de Compras';
-    const rows = Object.keys(data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+    const rows = getOrderedFields(formId, data);
     const fieldsHtml = rows.map(key => {
       const rawValue = data[key];
       const value = rawValue === undefined || rawValue === '' ? '&nbsp;' : String(rawValue).replace(/\n/g, '<br>');
@@ -307,7 +339,11 @@ button.secondary:hover{background:#e2e8f0;}
     addPdfHeader(doc, title, `Registro ID: ${entry.id}`, savedAt);
 
     let y = 100;
-    const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+    const rows = getOrderedFields(formId, entry.data);
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const lineHeight = 16;
+
     for (const key of rows) {
       const label = getFieldLabel(key);
       const rawValue = entry.data[key];
@@ -315,40 +351,45 @@ button.secondary:hover{background:#e2e8f0;}
         const image = rawValue;
         const imgWidth = 240;
         const imgHeight = 120;
-        if (y + imgHeight + 40 > 720) {
+        const blockHeight = imgHeight + 36;
+        if (y + blockHeight > pageHeight - 40) {
           addPdfFooter(doc, pageNumber);
           doc.addPage();
           pageNumber += 1;
           addPdfHeader(doc, title, `Registro ID: ${entry.id}`, savedAt);
           y = 100;
         }
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.75);
+        doc.rect(36, y - 8, pageWidth - 72, blockHeight, 'S');
         doc.setFontSize(11);
         doc.setFont(undefined, 'bold');
-        doc.text(`${label}:`, 40, y);
-        y += 18;
-        doc.addImage(image, 'JPEG', 40, y, imgWidth, imgHeight);
-        y += imgHeight + 18;
+        doc.text(`${label}:`, 44, y + 8);
+        doc.addImage(image, 'JPEG', 44, y + 24, imgWidth, imgHeight);
+        y += blockHeight + 12;
         continue;
       }
 
       const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
-      const wrappedText = doc.splitTextToSize(value, doc.internal.pageSize.getWidth() - 40 - 150 - 40);
-      if (y + wrappedText.length * 16 + 40 > 720) {
+      const wrappedText = doc.splitTextToSize(value, pageWidth - 44 - 150 - 40);
+      const contentHeight = Math.max(wrappedText.length * lineHeight, lineHeight);
+      const blockHeight = contentHeight + 22;
+      if (y + blockHeight > pageHeight - 40) {
         addPdfFooter(doc, pageNumber);
         doc.addPage();
         pageNumber += 1;
         addPdfHeader(doc, title, `Registro ID: ${entry.id}`, savedAt);
         y = 100;
       }
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.75);
+      doc.rect(36, y - 8, pageWidth - 72, blockHeight, 'S');
       doc.setFontSize(11);
       doc.setFont(undefined, 'bold');
-      doc.text(`${label}:`, 40, y);
+      doc.text(`${label}:`, 44, y + 8);
       doc.setFont(undefined, 'normal');
-      doc.text(wrappedText, 150, y);
-      y += wrappedText.length * 16 + 12;
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.5);
-      doc.line(40, y - 6, doc.internal.pageSize.getWidth() - 40, y - 6);
+      doc.text(wrappedText, 150, y + 8);
+      y += blockHeight + 12;
     }
 
     addPdfFooter(doc, pageNumber);
@@ -376,7 +417,10 @@ button.secondary:hover{background:#e2e8f0;}
       const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
       addPdfHeader(doc, title, `Registro ${index + 1} — ID: ${entry.id}`, savedAt);
       let y = 100;
-      const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+      const rows = getOrderedFields(formId, entry.data);
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const lineHeight = 16;
       for (const key of rows) {
         const label = getFieldLabel(key);
         const rawValue = entry.data[key];
@@ -384,39 +428,44 @@ button.secondary:hover{background:#e2e8f0;}
           const image = rawValue;
           const imgWidth = 240;
           const imgHeight = 120;
-          if (y + imgHeight + 40 > 720) {
+          const blockHeight = imgHeight + 36;
+          if (y + blockHeight > pageHeight - 40) {
             addPdfFooter(doc, pageNumber);
             doc.addPage();
             pageNumber += 1;
             addPdfHeader(doc, title, `Registro ${index + 1} — ID: ${entry.id}`, savedAt);
             y = 100;
           }
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.75);
+          doc.rect(36, y - 8, pageWidth - 72, blockHeight, 'S');
           doc.setFontSize(11);
           doc.setFont(undefined, 'bold');
-          doc.text(`${label}:`, 40, y);
-          y += 18;
-          doc.addImage(image, 'JPEG', 40, y, imgWidth, imgHeight);
-          y += imgHeight + 18;
+          doc.text(`${label}:`, 44, y + 8);
+          doc.addImage(image, 'JPEG', 44, y + 24, imgWidth, imgHeight);
+          y += blockHeight + 12;
           continue;
         }
         const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
-        const wrappedText = doc.splitTextToSize(value, doc.internal.pageSize.getWidth() - 40 - 150 - 40);
-        if (y + wrappedText.length * 16 + 40 > 720) {
+        const wrappedText = doc.splitTextToSize(value, pageWidth - 44 - 150 - 40);
+        const contentHeight = Math.max(wrappedText.length * lineHeight, lineHeight);
+        const blockHeight = contentHeight + 22;
+        if (y + blockHeight > pageHeight - 40) {
           addPdfFooter(doc, pageNumber);
           doc.addPage();
           pageNumber += 1;
           addPdfHeader(doc, title, `Registro ${index + 1} — ID: ${entry.id}`, savedAt);
           y = 100;
         }
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.75);
+        doc.rect(36, y - 8, pageWidth - 72, blockHeight, 'S');
         doc.setFontSize(11);
         doc.setFont(undefined, 'bold');
-        doc.text(`${label}:`, 40, y);
+        doc.text(`${label}:`, 44, y + 8);
         doc.setFont(undefined, 'normal');
-        doc.text(wrappedText, 150, y);
-        y += wrappedText.length * 16 + 12;
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.5);
-        doc.line(40, y - 6, doc.internal.pageSize.getWidth() - 40, y - 6);
+        doc.text(wrappedText, 150, y + 8);
+        y += blockHeight + 12;
       }
     });
 
@@ -1294,6 +1343,3 @@ document.addEventListener('DOMContentLoaded', ()=>{ document.body.appendChild(di
 
 </body>
 </html>
-
-
-
