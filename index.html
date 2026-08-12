@@ -265,7 +265,35 @@ button.secondary:hover{background:#e2e8f0;}
     openPrintableRecord(formId, entry.data);
   }
 
-  async function downloadSavedEntryPdf(formId, entryId) {
+  function addPdfHeader(doc, title, subtitle, savedAt) {
+    const margin = 40;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    doc.setFillColor(30, 64, 175);
+    doc.rect(0, 0, pageWidth, 72, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.text(title, margin, 32);
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.text(subtitle, margin, 50);
+    doc.text(`Guardado: ${savedAt}`, pageWidth - margin, 50, { align: 'right' });
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(1);
+    doc.line(margin, 72, pageWidth - margin, 72);
+    doc.setTextColor(0, 0, 0);
+  }
+
+  function addPdfFooter(doc, pageNumber) {
+    const margin = 40;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 110);
+    doc.text(`Página ${pageNumber}`, pageWidth - margin, pageHeight - 30, { align: 'right' });
+  }
+
+  function downloadSavedEntryPdf(formId, entryId) {
     const entry = findSavedEntry(formId, entryId);
     if (!entry) {
       alert('Registro no encontrado para PDF. Actualiza la lista y vuelve a intentar.');
@@ -274,46 +302,126 @@ button.secondary:hover{background:#e2e8f0;}
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const title = formId === 'f1' ? 'Evaluación Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluación de Compras';
-    doc.setFontSize(18);
-    doc.setFont(undefined, 'bold');
-    doc.text(title, 40, 50);
-    doc.setFont(undefined, 'normal');
     const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
-    doc.setFontSize(10);
-    doc.text(`Guardado: ${savedAt}`, 40, 70);
+    let pageNumber = 1;
+    addPdfHeader(doc, title, `Registro ID: ${entry.id}`, savedAt);
+
     let y = 100;
     const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
     for (const key of rows) {
-      if (y > 700) {
-        doc.addPage();
-        y = 50;
-      }
       const label = getFieldLabel(key);
       const rawValue = entry.data[key];
       if (key.endsWith('_signature') && typeof rawValue === 'string' && rawValue.startsWith('data:image')) {
         const image = rawValue;
-        doc.setFont(undefined, 'bold');
-        doc.text(label + ':', 40, y);
-        y += 24;
         const imgWidth = 240;
         const imgHeight = 120;
-        if (y + imgHeight > 720) {
+        if (y + imgHeight + 40 > 720) {
+          addPdfFooter(doc, pageNumber);
           doc.addPage();
-          y = 50;
+          pageNumber += 1;
+          addPdfHeader(doc, title, `Registro ID: ${entry.id}`, savedAt);
+          y = 100;
         }
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${label}:`, 40, y);
+        y += 18;
         doc.addImage(image, 'JPEG', 40, y, imgWidth, imgHeight);
-        y += imgHeight + 14;
+        y += imgHeight + 18;
         continue;
       }
+
       const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
+      const wrappedText = doc.splitTextToSize(value, doc.internal.pageSize.getWidth() - 40 - 150 - 40);
+      if (y + wrappedText.length * 16 + 40 > 720) {
+        addPdfFooter(doc, pageNumber);
+        doc.addPage();
+        pageNumber += 1;
+        addPdfHeader(doc, title, `Registro ID: ${entry.id}`, savedAt);
+        y = 100;
+      }
+      doc.setFontSize(11);
       doc.setFont(undefined, 'bold');
-      doc.text(label + ':', 40, y);
+      doc.text(`${label}:`, 40, y);
       doc.setFont(undefined, 'normal');
-      const split = doc.splitTextToSize(value, 450);
-      doc.text(split, 150, y);
-      y += split.length * 14 + 10;
+      doc.text(wrappedText, 150, y);
+      y += wrappedText.length * 16 + 12;
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(40, y - 6, doc.internal.pageSize.getWidth() - 40, y - 6);
     }
+
+    addPdfFooter(doc, pageNumber);
     const filename = `${formId}_registro_${entry.id}.pdf`;
+    doc.save(filename);
+  }
+
+  function downloadSavedEntriesPdf(formId) {
+    const entries = lastSavedEntries[formId] || [];
+    if (!entries.length) {
+      alert('No hay registros para descargar.');
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const title = formId === 'f1' ? 'Evaluaciones Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluaciones de Compras';
+    let pageNumber = 1;
+
+    entries.forEach((entry, index) => {
+      if (index > 0) {
+        addPdfFooter(doc, pageNumber);
+        doc.addPage();
+        pageNumber += 1;
+      }
+      const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
+      addPdfHeader(doc, title, `Registro ${index + 1} — ID: ${entry.id}`, savedAt);
+      let y = 100;
+      const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
+      for (const key of rows) {
+        const label = getFieldLabel(key);
+        const rawValue = entry.data[key];
+        if (key.endsWith('_signature') && typeof rawValue === 'string' && rawValue.startsWith('data:image')) {
+          const image = rawValue;
+          const imgWidth = 240;
+          const imgHeight = 120;
+          if (y + imgHeight + 40 > 720) {
+            addPdfFooter(doc, pageNumber);
+            doc.addPage();
+            pageNumber += 1;
+            addPdfHeader(doc, title, `Registro ${index + 1} — ID: ${entry.id}`, savedAt);
+            y = 100;
+          }
+          doc.setFontSize(11);
+          doc.setFont(undefined, 'bold');
+          doc.text(`${label}:`, 40, y);
+          y += 18;
+          doc.addImage(image, 'JPEG', 40, y, imgWidth, imgHeight);
+          y += imgHeight + 18;
+          continue;
+        }
+        const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
+        const wrappedText = doc.splitTextToSize(value, doc.internal.pageSize.getWidth() - 40 - 150 - 40);
+        if (y + wrappedText.length * 16 + 40 > 720) {
+          addPdfFooter(doc, pageNumber);
+          doc.addPage();
+          pageNumber += 1;
+          addPdfHeader(doc, title, `Registro ${index + 1} — ID: ${entry.id}`, savedAt);
+          y = 100;
+        }
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${label}:`, 40, y);
+        doc.setFont(undefined, 'normal');
+        doc.text(wrappedText, 150, y);
+        y += wrappedText.length * 16 + 12;
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.5);
+        doc.line(40, y - 6, doc.internal.pageSize.getWidth() - 40, y - 6);
+      }
+    });
+
+    addPdfFooter(doc, pageNumber);
+    const filename = `${formId}_registros_${new Date().toISOString().slice(0, 10)}.pdf`;
     doc.save(filename);
   }
 
@@ -1186,5 +1294,6 @@ document.addEventListener('DOMContentLoaded', ()=>{ document.body.appendChild(di
 
 </body>
 </html>
+
 
 
