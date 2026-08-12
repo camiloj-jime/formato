@@ -406,46 +406,77 @@ button.secondary:hover{background:#e2e8f0;}
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const title = formId === 'f1' ? 'Evaluaciones Prestador de Servicios' : formId === 'f2' ? 'Seguimiento de Proveedores' : 'Evaluaciones de Compras';
-    doc.setFontSize(18);
-    doc.setFont(undefined, 'bold');
-    doc.text(title, 40, 50);
-    let y = 80;
+
     entries.forEach((entry, index) => {
-      if (y > 700) {
-        doc.addPage();
-        y = 50;
-      }
-      doc.setFontSize(12);
-      doc.setFont(undefined, 'bold');
-      doc.text(`Registro ${index + 1} - ID: ${entry.id}`, 40, y);
-      y += 18;
+      if (index > 0) doc.addPage();
+
       const savedAt = entry.data.savedAt && entry.data.savedAt.toDate ? entry.data.savedAt.toDate().toLocaleString() : entry.data.savedAtLocal || '';
+
+      // Header banner
+      doc.setFillColor(37, 99, 235);
+      doc.rect(0, 0, 612, 72, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.text(title, 40, 38);
       doc.setFontSize(10);
       doc.setFont(undefined, 'normal');
-      doc.text(`Guardado: ${savedAt}`, 40, y);
-      y += 16;
+      doc.text(`Registro ${index + 1} - ID: ${entry.id}`, 40, 54);
+      doc.text(`Guardado: ${savedAt}`, 300, 54);
+
+      let y = 100;
       const rows = Object.keys(entry.data).filter(key => key !== 'formId' && key !== 'savedAtLocal' && key !== 'savedAt');
       rows.forEach(key => {
         if (y > 700) {
           doc.addPage();
           y = 50;
+          doc.setFillColor(37, 99, 235);
+          doc.rect(0, 0, 612, 52, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(14);
+          doc.setFont(undefined, 'bold');
+          doc.text(title, 40, 38);
+          doc.setTextColor(0, 0, 0);
+          y = 70;
         }
+
         const label = getFieldLabel(key);
         const rawValue = entry.data[key];
+
+        if (key.endsWith('_signature') && typeof rawValue === 'string' && rawValue.startsWith('data:image')) {
+          doc.setFontSize(11);
+          doc.setFont(undefined, 'bold');
+          doc.setTextColor(20, 20, 20);
+          doc.text(`${label}:`, 40, y);
+          y += 18;
+          const imgHeight = 120;
+          const imgWidth = 260;
+          if (y + imgHeight > 700) {
+            doc.addPage();
+            y = 50;
+          }
+          doc.addImage(rawValue, 'JPEG', 40, y, imgWidth, imgHeight);
+          y += imgHeight + 16;
+          return;
+        }
+
         const value = rawValue === undefined || rawValue === '' ? '-' : String(rawValue);
+        const lines = doc.splitTextToSize(value, 430);
+        doc.setFontSize(11);
         doc.setFont(undefined, 'bold');
+        doc.setTextColor(20, 20, 20);
         doc.text(`${label}:`, 40, y);
         doc.setFont(undefined, 'normal');
-        const split = doc.splitTextToSize(value, 450);
-        doc.text(split, 150, y);
-        y += split.length * 14 + 8;
+        doc.setTextColor(50, 50, 50);
+        doc.text(lines, 150, y);
+        y += lines.length * 16 + 10;
       });
-      y += 12;
-      doc.setDrawColor(220, 226, 243);
-      doc.setLineWidth(0.5);
-      doc.line(40, y, 555, y);
-      y += 14;
+
+      doc.setDrawColor(206, 214, 224);
+      doc.setLineWidth(0.75);
+      doc.line(40, y, 572, y);
     });
+
     const filename = `${formId}_registros_${new Date().toISOString().slice(0,10)}.pdf`;
     doc.save(filename);
   }
@@ -1155,4 +1186,5 @@ document.addEventListener('DOMContentLoaded', ()=>{ document.body.appendChild(di
 
 </body>
 </html>
+
 
