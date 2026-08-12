@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Formatos de Proveedores</title>
+<style>
+:root{
+  color-scheme: light;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color:#0f172a;
+  background-color:#eef2f7;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{margin:0;min-height:100vh;background:linear-gradient(180deg,#e2e8f7 0%,#f8fbff 100%);}
+.form-group{margin-bottom:18px;}
+header{background:linear-gradient(135deg,#0f172a 0%,#d89d9d 100%);color:#ffffff;text-align:center;padding:38px 22px;}
+header h2{margin:0;font-size:2rem;letter-spacing:.14em;text-transform:uppercase;}
+header p{margin:.95rem auto 0;max-width:760px;font-size:1rem;opacity:.88;line-height:1.75;}
+.container{padding:34px 22px;max-width:1180px;margin:0 auto;}
+.formato{background:rgba(255,255,255,0.98);width:100%;margin:auto;border:1px solid rgba(148,163,184,.18);border-radius:32px;padding:32px;box-shadow:0 28px 60px rgba(15,23,42,.08);margin-bottom:32px;}
+.formato h3,.formato h4{margin:0 0 20px;color:#111827;letter-spacing:.03em;}
+.formato h4{font-size:1.25rem;text-transform:uppercase;letter-spacing:.08em;}
+.table-wrapper{overflow-x:auto;border-radius:24px;box-shadow:0 16px 34px rgba(15,23,42,.05);}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:0.95rem;min-width:560px;background:#ffffff;border-radius:24px;}
+th,td{padding:14px 16px;vertical-align:middle;border-bottom:1px solid #e2e8f0;}
+th{background:#e497ae;color:#ffffff;font-weight:700;text-transform:uppercase;letter-spacing:.02em;font-size:.82rem;border:none;}
+td{background:#ffffff;color:#334155;}
+tr:nth-child(even) td{background:#f9fbff;}
+.center{text-align:center;}
+input,textarea{width:100%;border:1px solid #d1d5db;padding:14px 16px;border-radius:16px;background:#ffffff;color:#0f172a;font-size:.95rem;transition:border-color .25s ease,box-shadow .25s ease,transform .15s ease;}
+textarea{resize:vertical;min-height:130px;}
+input:focus,textarea:focus{outline:none;border-color:#e78181;box-shadow:0 0 0 4px rgba(37,99,235,.12);}
+input[type='radio']{width:auto;margin:0;display:inline-block;cursor:pointer;accent-color:#2563eb;}
+.company-header{display:grid;grid-template-columns:200px 1fr;gap:24px;align-items:center;padding:28px;border-radius:28px;background:linear-gradient(135deg,#eff6ff 0%,#ffffff 100%);margin-bottom:28px;border:1px solid rgba(96,165,250,.2);}
+.company-logo{width:200px;height:120px;border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;}
+.company-info{font-size:.96rem;line-height:1.8;color:#334155;}
+.company-info strong{display:block;font-size:1rem;margin-bottom:8px;color:#1e3a8a;}
+.form-note{margin:0 0 18px;color:#475569;font-size:.97rem;line-height:1.75;}
+.line{border-bottom:1px solid #cbd5e1;min-height:30px;}
+button{margin:6px 5px;padding:13px 24px;background:#e48585;color:#ffffff;border:none;border-radius:16px;cursor:pointer;font-weight:700;transition:background .25s ease,transform .2s ease,box-shadow .2s ease;}
+button:hover{background:#c5898c;transform:translateY(-1px);box-shadow:0 14px 30px rgba(37,99,235,.18);}
+button.secondary{background:#f8fafc;color:#0f172a;}
+button.secondary:hover{background:#e2e8f0;}
+.button-row{display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end;align-items:center;margin-top:18px;}
+.hidden{display:none;}
+.signature-preview{max-width:100%;max-height:140px;margin-top:10px;border:1px solid #cbd5e1;background:#ffffff;padding:10px;border-radius:18px;display:none;}
+.saved-entries{margin-top:28px;}
+.saved-entries h4{margin:0 0 18px;font-size:1.12rem;color:#111827;}
+.saved-entries .entry-list{display:grid;gap:14px;}
+.saved-entries .entry-card{padding:22px 24px;border-radius:24px;background:#ffffff;border:1px solid rgba(37,99,235,.12);box-shadow:0 16px 40px rgba(15,23,42,.06);}
+.filter-row{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;margin-bottom:18px;}
+.filter-row label{font-weight:700;color:#334155;display:flex;align-items:center;gap:10px;}
+.filter-row input[type="date"]{min-width:180px;max-width:220px;border-radius:14px;border:1px solid #cbd5e1;padding:10px 12px;}
+.filter-row button{min-width:140px;}
+.download-button{background:#111827;color:#ffffff;}
+.download-button:hover{background:#0b1430;}
+.status{text-align:right;font-size:.95rem;font-weight:700;color:#2563eb;}
+.formato h4{font-size:1.18rem;letter-spacing:.04em;margin-bottom:20px;}
+.formato table th{background:#2563eb;color:#fff;}
+.formato table td{border-color:#e2e8f0;}
+.line input{background:transparent;border:none;padding:0 8px;}
+@media (max-width:880px){
+  .company-header{grid-template-columns:1fr;}
+}
+@media (max-width:720px){
+  header h2{font-size:1.6rem;}
+  .formato{padding:24px;}
+  .button-row{justify-content:flex-start;}
+}
+</style>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCpMEUbWZn34iA-9W7bLhoHIgmaFLGEp6M",
+    authDomain: "inventario-cd81f.firebaseapp.com",
+    projectId: "inventario-cd81f",
+    storageBucket: "inventario-cd81f.firebasestorage.app",
+    messagingSenderId: "910810973512",
+    appId: "1:910810973512:web:55b2366a61bfb8d7335f7d",
+    measurementId: "G-P1N3VVSPT6"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  let currentUser = null;
+  const lastSavedEntries = { f1: [], f2: [], f3: [] };
+
+  auth.signInAnonymously().catch(error => {
+    console.error('Firebase auth error:', error);
+  });
+
+  auth.onAuthStateChanged(user => {
+    currentUser = user;
+    console.log('Firebase auth user:', user ? user.uid : 'no user');
+  });
+
+  async function saveFormToFirebase(collectionName, formData) {
+    if (!currentUser) {
+      console.error('No Firebase auth user available yet');
+      return false;
+    }
+    try {
+      formData.savedAt = firebase.firestore.FieldValue.serverTimestamp();
+      await db.collection(collectionName).add(formData);
+      return true;
+    } catch (error) {
+      console.error('Firebase save error:', error);
+      return false;
+    }
+  }
+
+  function getFormData(formId) {
+    const data = { formId, savedAtLocal: new Date().toISOString() };
+    if (formId === 'f1') {
+      ['f1_nombre','f1_fecha','f1_ubicacion','f1_tel','f1_obs'].forEach(id => data[id] = document.getElementById(id).value);
+      ['f1_calidad','f1_oportunidad','f1_atencion_sugerencias','f1_atencion_responde','f1_atencion_cumplimiento'].forEach(name => {
+        const sel = document.querySelector(`input[name="${name}"]:checked`);
+        data[name] = sel ? sel.value : '';
+      });
+      data.f1_total_score = document.getElementById('f1_total_score').innerText;
+      data.f1_signature = document.getElementById('f1_signature_preview').src || '';
+    } else if (formId === 'f2') {
+      ['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel','f2_eval_interior','f2_eval_seguimiento','f2_spec_score','f2_puntual_score','f2_atencion_score'].forEach(id => data[id] = document.getElementById(id).value);
+      ['f2_spec','f2_puntual','f2_atencion','f2_reval'].forEach(name => {
+        const sel = document.querySelector(`input[name="${name}"]:checked`);
+        data[name] = sel ? sel.value : '';
+      });
+      data.f2_signature = document.getElementById('f2_signature_preview').src || '';
+    } else if (formId === 'f3') {
+      ['f3_nombre','f3_ubicacion','f3_fecha','f3_tel','f3_obs'].forEach(id => data[id] = document.getElementById(id).value);
+      ['f3_calidad','f3_oport_entrega','f3_oport_cantidad','f3_oport_unidades','f3_atencion'].forEach(name => {
+        const sel = document.querySelector(`input[name="${name}"]:checked`);
+        data[name] = sel ? sel.value : '';
+      });
+      data.f3_total_score = document.getElementById('f3_total_score').innerText;
+      data.f3_signature = document.getElementById('f3_signature_preview').src || '';
+    }
+    return data;
+  }
+
+  function getCollectionName(formId) {
+    if (formId === 'f1') return 'evaluaciones_prestador_servicios';
+    if (formId === 'f2') return 'seguimiento_proveedores';
+    if (formId === 'f3') return 'evaluacion_compras';
+    return '';
+  }
+
+  async function loadLatestFormFromFirebase(formId) {
+    const collectionName = getCollectionName(formId);
+    if (!collectionName) return;
+    try {
+      const snapshot = await db.collection(collectionName)
+        .orderBy('savedAt', 'desc')
+        .limit(1)
+        .get();
+      if (snapshot.empty) return;
+      const doc = snapshot.docs[0].data();
+      populateFormFields(formId, doc);
+      const status = document.getElementById(`${formId}_save_status`);
+      if (status) status.innerText = 'Datos cargados desde Firebase';
+      setTimeout(()=>{ if (status) status.innerText=''; }, 3000);
+    } catch (error) {
+      console.error('Firebase load error:', error);
+    }
+  }
+
+  async function loadSavedEntries(formId) {
+    const collectionName = getCollectionName(formId);
+    if (!collectionName) return;
+    try {
+      let query = db.collection(collectionName).orderBy('savedAt', 'desc');
+      const startDate = document.getElementById(`${formId}_start_date`);
+      const endDate = document.getElementById(`${formId}_end_date`);
+      if (startDate && startDate.value) {
+        const start = new Date(startDate.value);
+        start.setHours(0,0,0,0);
+        query = query.where('savedAt', '>=', firebase.firestore.Timestamp.fromDate(start));
+      }
+      if (endDate && endDate.value) {
+        const end = new Date(endDate.value);
+        end.setHours(23,59,59,999);
+        query = query.where('savedAt', '<=', firebase.firestore.Timestamp.fromDate(end));
+      }
+      const snapshot = await query.limit(100).get();
+      lastSavedEntries[formId] = snapshot.docs.map(doc => ({ id: doc.id, data: doc.data() }));
+      renderSavedEntries(formId, snapshot.docs);
+    } catch (error) {
+      console.error('Firebase saved entries load error:', error);
+    }
+  }
+
+  function downloadSavedEntries(formId) {
+    const entries = lastSavedEntries[formId] || [];
+    if (!entries.length) {
+      alert('No hay registros para descargar.');
+      return;
+    }
+    const data = entries.map(entry => {
+      const record = { id: entry.id, ...entry.data };
+      if (record.savedAt && record.savedAt.toDate) {
+        record.savedAt = record.savedAt.toDate().toISOString();
+      }
+      return record;
+    });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${formId}_registros_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function renderSavedEntries(formId, docs) {
+    const container = document.getElementById(`${formId}_saved_list`);
+    if (!container) return;
+    if (!docs.length) {
+      container.innerHTML = '<p>No hay registros guardados aún.</p>';
+      return;
+    }
+    const html = docs.map(doc => {
+      const data = doc.data();
+      const savedAt = data.savedAt && data.savedAt.toDate ? data.savedAt.toDate().toLocaleString() : (data.savedAtLocal || '');
+      return `
+        <div class="entry-card">
+          <strong>${getSavedEntryTitle(formId, data)}</strong>
+          <div style="margin-top:10px;line-height:1.5;">${getSavedEntryDetails(formId, data)}<br><small>${savedAt}</small></div>
+        </div>`;
+    }).join('');
+    container.innerHTML = `<div class="entry-list">${html}</div>`;
+  }
+
+  function getSavedEntryTitle(formId, data) {
+    if (formId === 'f1') return `${data.f1_nombre || 'Proveedor'} — ${data.f1_fecha || ''} — ${data.f1_total_score || ''}`;
+    if (formId === 'f2') return `${data.f2_nombre || data.f2_razon || 'Proveedor'} — ${data.f2_fecha || ''} — ${data.f2_eval_interior || ''}`;
+    if (formId === 'f3') return `${data.f3_nombre || 'Proveedor'} — ${data.f3_fecha || ''} — ${data.f3_total_score || ''}`;
+    return 'Registro guardado';
+  }
+
+  function getSavedEntryDetails(formId, data) {
+    if (formId === 'f1') {
+      return `Ubicación: ${data.f1_ubicacion || ''}<br>Tel: ${data.f1_tel || ''}<br>Observaciones: ${data.f1_obs || ''}`;
+    }
+    if (formId === 'f2') {
+      return `Razón social: ${data.f2_razon || ''}<br>NIT: ${data.f2_nit || ''}<br>Tel: ${data.f2_tel || ''}<br>Seguimiento: ${data.f2_eval_seguimiento || ''}`;
+    }
+    if (formId === 'f3') {
+      return `Ubicación: ${data.f3_ubicacion || ''}<br>Tel: ${data.f3_tel || ''}<br>Observaciones: ${data.f3_obs || ''}`;
+    }
+    return '';
+  }
+
+  function populateFormFields(formId, data) {
+    if (formId === 'f1') {
+      ['f1_nombre','f1_fecha','f1_ubicacion','f1_tel','f1_obs'].forEach(id => { if (data[id] !== undefined) document.getElementById(id).value = data[id]; });
+      ['f1_calidad','f1_oportunidad','f1_atencion_sugerencias','f1_atencion_responde','f1_atencion_cumplimiento'].forEach(name => {
+        const value = data[name] || '';
+        document.querySelectorAll(`input[name="${name}"]`).forEach(r => { r.checked = r.value === value; r.wasChecked = r.checked; });
+      });
+      if (data.f1_signature) {
+        const preview = document.getElementById('f1_signature_preview');
+        preview.src = data.f1_signature;
+        preview.style.display = 'block';
+      }
+      calcF1();
+    } else if (formId === 'f2') {
+      ['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel','f2_eval_interior','f2_eval_seguimiento','f2_spec_score','f2_puntual_score','f2_atencion_score'].forEach(id => { if (data[id] !== undefined) document.getElementById(id).value = data[id]; });
+      ['f2_spec','f2_puntual','f2_atencion','f2_reval'].forEach(name => {
+        const value = data[name] || '';
+        document.querySelectorAll(`input[name="${name}"]`).forEach(r => { r.checked = r.value === value; r.wasChecked = r.checked; });
+      });
+      if (data.f2_signature) {
+        const preview = document.getElementById('f2_signature_preview');
+        preview.src = data.f2_signature;
+        preview.style.display = 'block';
+      }
+      calcF2();
+    } else if (formId === 'f3') {
+      ['f3_nombre','f3_ubicacion','f3_fecha','f3_tel','f3_obs'].forEach(id => { if (data[id] !== undefined) document.getElementById(id).value = data[id]; });
+      ['f3_calidad','f3_oport_entrega','f3_oport_cantidad','f3_oport_unidades','f3_atencion'].forEach(name => {
+        const value = data[name] || '';
+        document.querySelectorAll(`input[name="${name}"]`).forEach(r => { r.checked = r.value === value; r.wasChecked = r.checked; });
+      });
+      if (data.f3_signature) {
+        const preview = document.getElementById('f3_signature_preview');
+        preview.src = data.f3_signature;
+        preview.style.display = 'block';
+      }
+      calcF3();
+    }
+  }
+</script>
+</head>
+<body>
+<header>
+  <h2>Formatos de evaluación de proveedores</h2>
+  <p>Control y seguimiento profesional a la calidad, oportunidad y atención del proveedor en compras y servicios.</p>
+</header>
+
+<div class="container">
+
+<div class="company-header">
+  <div class="company-logo"><img src="logo.jpg" alt="Carmelitas Misioneras" style="max-width:100%; max-height:88px; display:block;" onerror="this.style.display='none'; this.parentNode.textContent='Logo'"/></div>
+  <div class="company-info">
+    <strong>CARMELITAS MISIONERAS</strong><br>
+    Colegio Francisco Palau y Quer<br>
+    Aprobado por Resolución 257 del 18 de abril de 2005, Ley 115 de 1994<br>
+    San Juan del Cesar - La Guajira NIT 890.901.075-8<br>
+    Dane 344650001413 - Celular 3188272738
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="loginBox" class="formato">
+<h3 class="center">INICIO DE SESIÓN</h3>
+<div class="form-group"><input type="text" id="user" placeholder="Usuario"></div>
+<div class="form-group"><input type="password" id="pass" placeholder="Contraseña"></div>
+<div class="button-row"><button onclick="login()">Ingresar</button></div>
+</div>
+
+<!-- MENU -->
+<div id="menu" class="formato hidden button-row">
+<button onclick="mostrar('f1')">Evaluación Prestador de Servicios</button>
+<button onclick="mostrar('f2')">Seguimiento de Proveedores</button>
+<button onclick="mostrar('f3')">Evaluación de Compras</button>
+<button onclick="logout()">Cerrar Sesión</button>
+</div>
+
+<!-- FORMATO 1 -->
+<div id="f1" class="formato hidden">
+<h4 class="center">FORMATO DE EVALUACIÓN PARA PRESTADOR DE SERVICIOS</h4>
+
+<table>
+<tr><td>Nombre:</td><td class="line"><input id="f1_nombre" placeholder="Proveedor"></td><td>Fecha:</td><td class="line"><input id="f1_fecha" type="date"></td></tr>
+<tr><td>Ubicación:</td><td class="line"><input id="f1_ubicacion" placeholder="Ubicación"></td><td>Tel:</td><td class="line"><input id="f1_tel" placeholder="Teléfono"></td></tr>
+</table>
+
+<br>
+
+<table>
+<tr><th>ASPECTO A CALIFICAR</th><th>20</th><th>60</th><th>100</th><th>PONDERACIÓN</th><th>PUNTAJE</th></tr>
+<tr><td><strong>1. CALIDAD (50%)</strong> - Cumplimiento con las condiciones del servicio</td>
+<td class="center"><input type="radio" name="f1_calidad" value="20" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_calidad" value="60" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_calidad" value="100" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center">50%</td><td class="center" id="f1_calidad_score">0%</td>
+</tr>
+<tr><td><strong>2. OPORTUNIDAD (25%)</strong> - Prestación del servicio en el tiempo acordado</td>
+<td class="center"><input type="radio" name="f1_oportunidad" value="20" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_oportunidad" value="60" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_oportunidad" value="100" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center">25%</td><td class="center" id="f1_oportunidad_score">0%</td>
+</tr>
+<tr><td><strong>3. ATENCIÓN (25%)</strong> - Atiende las sugerencias</td>
+<td class="center"><input type="radio" name="f1_atencion_sugerencias" value="20" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_atencion_sugerencias" value="60" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_atencion_sugerencias" value="100" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center">8.33%</td><td class="center" id="f1_atencion_sugerencias_score">0%</td>
+</tr>
+<tr><td>Responde amablemente</td>
+<td class="center"><input type="radio" name="f1_atencion_responde" value="20" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_atencion_responde" value="60" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_atencion_responde" value="100" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center">8.33%</td><td class="center" id="f1_atencion_responde_score">0%</td>
+</tr>
+<tr><td>Cumplimiento social</td>
+<td class="center"><input type="radio" name="f1_atencion_cumplimiento" value="20" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_atencion_cumplimiento" value="60" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center"><input type="radio" name="f1_atencion_cumplimiento" value="100" onclick="toggleRadio(this); calcF1();"></td>
+<td class="center">8.33%</td><td class="center" id="f1_atencion_cumplimiento_score">0%</td>
+</tr>
+<tr><td class="center">TOTAL</td><td colspan="4" class="center" id="f1_total_score">0%</td><td></td>
+</tr>
+</table>
+
+<br>
+<br>
+<label>Observaciones</label>
+<textarea id="f1_obs" style="width:100%;height:60px"></textarea>
+<br><br>
+<label>Firma</label>
+<input type="file" id="f1_signature_input" accept="image/*" onchange="loadSignature(event,'f1_signature_preview','f1')"><br>
+<img id="f1_signature_preview" class="signature-preview" alt="Vista previa de firma"><br>
+<button type="button" onclick="clearSignatureInput('f1_signature_input','f1_signature_preview')">Limpiar Firma</button>
+<br>
+<div class="button-row">
+<button type="button" onclick="saveFormF1()">Guardar</button>
+<button type="button" class="secondary" onclick="resetF1()">Limpiar</button>
+<span id="f1_save_status" style="color:#2f855a;font-weight:bold;margin-left:12px"></span>
+</div>
+<div class="saved-entries" style="margin-top:24px;">
+  <h4 class="center">Registros guardados</h4>
+  <div class="filter-row">
+    <label>Desde <input type="date" id="f1_start_date"></label>
+    <label>Hasta <input type="date" id="f1_end_date"></label>
+    <button type="button" onclick="loadSavedEntries('f1')">Actualizar</button>
+    <button type="button" class="download-button" onclick="downloadSavedEntries('f1')">Descargar JSON</button>
+  </div>
+  <div id="f1_saved_list"></div>
+</div>
+</div>
+
+<!-- FORMATO 2 -->
+<div id="f2" class="formato hidden">
+<h4 class="center">FORMATO DE SEGUIMIENTO A PROVEEDORES</h4>
+
+<table>
+<tr><td>Razón social:</td><td class="line"><input id="f2_razon" placeholder="Razón social"></td><td>NIT:</td><td class="line"><input id="f2_nit" placeholder="NIT"></td></tr>
+<tr><td>Nombre:</td><td class="line"><input id="f2_nombre" placeholder="Nombre"></td><td>Fecha:</td><td class="line"><input id="f2_fecha" type="date"></td></tr>
+<tr><td>Ubicación:</td><td class="line"><input id="f2_ubicacion" placeholder="Ubicación"></td><td>Teléfono:</td><td class="line"><input id="f2_tel" placeholder="Teléfono"></td></tr>
+</table>
+
+<br>
+
+<table>
+<tr><th>Parámetro</th><th>SI</th><th>NO</th><th>PORCENTAJE %</th></tr>
+<tr>
+<td>Cumple con las especificaciones</td>
+<td class="center"><input type="radio" name="f2_spec" value="1"></td>
+<td class="center"><input type="radio" name="f2_spec" value="0"></td>
+<td class="center"><input id="f2_spec_score" placeholder="%" style="width:50px;text-align:center;" onchange="calcF2()"></td>
+</tr>
+<tr>
+<td>Puntualidad en la entrega del servicio</td>
+<td class="center"><input type="radio" name="f2_puntual" value="1"></td>
+<td class="center"><input type="radio" name="f2_puntual" value="0"></td>
+<td class="center"><input id="f2_puntual_score" placeholder="%" style="width:50px;text-align:center;" onchange="calcF2()"></td>
+</tr>
+<tr>
+<td>Atiende oportunamente los requerimientos</td>
+<td class="center"><input type="radio" name="f2_atencion" value="1"></td>
+<td class="center"><input type="radio" name="f2_atencion" value="0"></td>
+<td class="center"><input id="f2_atencion_score" placeholder="%" style="width:50px;text-align:center;" onchange="calcF2()"></td>
+</tr>
+</table>
+
+<br>
+<div style="display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:flex-start;">
+  <div style="flex:1;min-width:220px;">
+    <strong>CALIFICACION DE EVALUACION INTERIOS AL 70%</strong>
+    <div class="line" style="height:32px;margin-top:8px;">
+      <input id="f2_eval_interior" placeholder="Se llenará automáticamente" style="width:100%;height:100%;border:none;background:transparent;font-weight:700;" readonly>
+    </div>
+  </div>
+  <div style="flex:1;min-width:220px;">
+    <strong>CALIFICACION DEL SEGUIMIENTO</strong>
+    <div class="line" style="height:32px;margin-top:8px;">
+      <input id="f2_eval_seguimiento" placeholder="" style="width:100%;height:100%;border:none;background:transparent;font-weight:700;">
+    </div>
+  </div>
+</div>
+
+<br>
+<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:center;">
+  <strong style="flex:0 0 auto;">APLICA PARA REVALUACION</strong>
+  <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="f2_reval" value="si"> SI</label>
+  <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="f2_reval" value="no"> NO</label>
+</div>
+
+<br>
+<div style="display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:flex-start;">
+  <div style="flex:1;min-width:220px;">
+    <strong>FIRMA DIGITAL :</strong><br>
+    <input type="file" id="f2_signature_input" accept="image/*" onchange="loadSignature(event,'f2_signature_preview','f2')"><br>
+    <img id="f2_signature_preview" class="signature-preview" alt="Vista previa de firma"><br>
+    <button type="button" onclick="clearSignatureInput('f2_signature_input','f2_signature_preview')">Limpiar Firma</button>
+  </div>
+</div>
+<br>
+<div class="button-row">
+<button type="button" onclick="saveFormF2()">Guardar</button>
+<button type="button" class="secondary" onclick="resetF2()">Limpiar</button>
+<span id="f2_save_status" style="color:#2f855a;font-weight:bold;margin-left:12px"></span>
+</div>
+<div class="saved-entries" style="margin-top:24px;">
+  <h4 class="center">Registros guardados</h4>
+  <div class="filter-row">
+    <label>Desde <input type="date" id="f2_start_date"></label>
+    <label>Hasta <input type="date" id="f2_end_date"></label>
+    <button type="button" onclick="loadSavedEntries('f2')">Actualizar</button>
+    <button type="button" class="download-button" onclick="downloadSavedEntries('f2')">Descargar JSON</button>
+  </div>
+  <div id="f2_saved_list"></div>
+</div>
+</div>
+
+<!-- FORMATO 3 -->
+<div id="f3" class="formato hidden">
+<h4 class="center">EVALUACIÓN DE PROVEEDORES POR COMPRAS</h4>
+
+<table>
+<tr><td>Nombre:</td><td class="line"><input id="f3_nombre" placeholder="Nombre del proveedor"></td><td>Ubicación:</td><td class="line"><input id="f3_ubicacion" placeholder="Ubicación"></td></tr>
+<tr><td>Fecha:</td><td class="line"><input id="f3_fecha" type="date"></td><td>Tel:</td><td class="line"><input id="f3_tel" placeholder="Teléfono"></td></tr>
+</table>
+
+<br>
+
+<table>
+<tr><th>ASPECTO A CALIFICAR</th><th>20</th><th>60</th><th>100</th><th>PONDERADO</th></tr>
+<tr>
+<td><strong>1. CALIDAD (50%)</strong><br>Conformidad del producto</td>
+<td class="center"><input type="radio" name="f3_calidad" value="20" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_calidad" value="60" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_calidad" value="100" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center" id="f3_calidad_score">0%</td>
+</tr>
+<tr>
+<td><strong>2. OPORTUNIDAD (40%)</strong></td>
+<td colspan="4"></td>
+</tr>
+<tr>
+<td style="padding-left:18px">Cumplimiento en la entrega</td>
+<td class="center"><input type="radio" name="f3_oport_entrega" value="20" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_oport_entrega" value="60" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_oport_entrega" value="100" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center" id="f3_oport_entrega_score">0%</td>
+</tr>
+<tr>
+<td style="padding-left:18px">Cumplimiento con la cantidad</td>
+<td class="center"><input type="radio" name="f3_oport_cantidad" value="20" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_oport_cantidad" value="60" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_oport_cantidad" value="100" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center" id="f3_oport_cantidad_score">0%</td>
+</tr>
+<tr>
+<td style="padding-left:18px">Unidades disponibles</td>
+<td class="center"><input type="radio" name="f3_oport_unidades" value="20" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_oport_unidades" value="60" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_oport_unidades" value="100" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center" id="f3_oport_unidades_score">0%</td>
+</tr>
+<tr>
+<td><strong>3. ATENCIÓN (10%)</strong><br>Sugerencias, requerimientos</td>
+<td class="center"><input type="radio" name="f3_atencion" value="20" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_atencion" value="60" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center"><input type="radio" name="f3_atencion" value="100" onclick="toggleRadio(this); calcF3();"></td>
+<td class="center" id="f3_atencion_score">0%</td>
+</tr>
+<tr>
+<td class="center">TOTAL</td>
+<td colspan="3"></td>
+<td class="center" id="f3_total_score">0.00%</td>
+</tr>
+</table>
+
+<br>
+<label>Observaciones</label>
+<textarea id="f3_obs" style="width:100%;height:60px"></textarea>
+<br><br>
+<table>
+<tr><th colspan="2">CALIDAD</th><th>PUNTAJE</th></tr>
+<tr><td colspan="2">El producto cumple con las especificaciones</td><td class="center">100</td></tr>
+<tr><td colspan="2">El producto presenta desviaciones que no afectan el proceso</td><td class="center">60</td></tr>
+<tr><td colspan="2">El producto presenta desviaciones que afectan el proceso</td><td class="center">20</td></tr>
+<tr><th colspan="2">OPORTUNIDAD</th><th>PUNTAJE</th></tr>
+<tr><td colspan="2">El producto llega con la fecha acordada</td><td class="center">100</td></tr>
+<tr><td colspan="2">El producto llega con demora que no afecta el proceso</td><td class="center">60</td></tr>
+<tr><td colspan="2">El producto llega con demoras que afectan el proceso</td><td class="center">20</td></tr>
+<tr><th colspan="2">ATENCIÓN</th><th>PUNTAJE</th></tr>
+<tr><td colspan="2">El proveedor atiende oportunamente las sugerencias y requerimientos</td><td class="center">100</td></tr>
+<tr><td colspan="2">El proveedor atiende parcialmente las sugerencias y requerimientos</td><td class="center">60</td></tr>
+<tr><td colspan="2">El proveedor no atiende las sugerencias ni los requerimientos</td><td class="center">20</td></tr>
+</table>
+
+<br>
+<label>Firma</label>
+<input type="file" id="f3_signature_input" accept="image/*" onchange="loadSignature(event,'f3_signature_preview','f3')"><br>
+<img id="f3_signature_preview" class="signature-preview" alt="Vista previa de firma"><br>
+<button type="button" onclick="clearSignatureInput('f3_signature_input','f3_signature_preview')">Limpiar Firma</button>
+<br>
+<div class="button-row">
+<button type="button" onclick="saveFormF3()">Guardar</button>
+<button type="button" class="secondary" onclick="resetF3()">Limpiar</button>
+<span id="f3_save_status" style="color:#2f855a;font-weight:bold;margin-left:12px"></span>
+</div>
+<div class="saved-entries" style="margin-top:24px;">
+  <h4 class="center">Registros guardados</h4>
+  <div class="filter-row">
+    <label>Desde <input type="date" id="f3_start_date"></label>
+    <label>Hasta <input type="date" id="f3_end_date"></label>
+    <button type="button" onclick="loadSavedEntries('f3')">Actualizar</button>
+    <button type="button" class="download-button" onclick="downloadSavedEntries('f3')">Descargar JSON</button>
+  </div>
+  <div id="f3_saved_list"></div>
+</div>
+</div>
+
+</div>
+
+<script>
+function calcF1(){
+ const rows=[
+ {name:'f1_calidad',id:'f1_calidad_score',pondera:50},
+ {name:'f1_oportunidad',id:'f1_oportunidad_score',pondera:25},
+ {name:'f1_atencion_sugerencias',id:'f1_atencion_sugerencias_score',pondera:25/3},
+ {name:'f1_atencion_responde',id:'f1_atencion_responde_score',pondera:25/3},
+ {name:'f1_atencion_cumplimiento',id:'f1_atencion_cumplimiento_score',pondera:25/3}
+ ];
+ let total=0;
+ rows.forEach(r=>{
+   const selected=document.querySelector(`input[name="${r.name}"]:checked`);
+   const factor = selected ? (selected.value==='20' ? 0.2 : selected.value==='60' ? 0.6 : 1) : 0;
+   const rowScore = r.pondera * factor;
+   total += rowScore;
+   document.getElementById(r.id).innerText = rowScore.toFixed(2) + '%';
+ });
+ let totalRounded = Number(total.toFixed(2));
+ if (Math.abs(totalRounded - 100) < 0.1) totalRounded = 100;
+ document.getElementById('f1_total_score').innerText = totalRounded.toFixed(2) + '%';
+ saveFormLocalStorage('f1');
+}
+
+function calcF2(){
+ const rows=[
+   {name:'f2_spec',id:'f2_spec_score'},
+   {name:'f2_puntual',id:'f2_puntual_score'},
+   {name:'f2_atencion',id:'f2_atencion_score'}
+ ];
+ let total=0;
+ let count=0;
+ rows.forEach(r=>{
+   const scoreInput = document.getElementById(r.id);
+   const score = parseFloat(scoreInput.value.replace('%', '')) || 0;
+   total += score;
+   count++;
+ });
+ const pct = count > 0 ? total / count : 0;
+ document.getElementById('f2_eval_interior').value = pct.toFixed(0) + '%';
+ saveFormLocalStorage('f2');
+}
+
+function calcF3(){
+ const rows=[
+   {name:'f3_calidad',weight:50,id:'f3_calidad_score'},
+   {name:'f3_oport_entrega',weight:13.3333333,id:'f3_oport_entrega_score'},
+   {name:'f3_oport_cantidad',weight:13.3333333,id:'f3_oport_cantidad_score'},
+   {name:'f3_oport_unidades',weight:13.3333333,id:'f3_oport_unidades_score'},
+   {name:'f3_atencion',weight:10,id:'f3_atencion_score'}
+ ];
+ let total=0;
+ rows.forEach(r=>{
+   const sel=document.querySelector(`input[name="${r.name}"]:checked`);
+   const factor = sel ? (sel.value==='20' ? 0.2 : sel.value==='60' ? 0.6 : 1) : 0;
+   const rowScore = r.weight * factor;
+   total += rowScore;
+   document.getElementById(r.id).innerText = rowScore.toFixed(2) + '%';
+ });
+ document.getElementById('f3_total_score').innerText = total.toFixed(2) + '%';
+ saveFormLocalStorage('f3');
+}
+
+function toggleRadio(radio){
+ if (radio.wasChecked){
+   radio.checked=false;
+   radio.wasChecked=false;
+ } else {
+   const group=document.getElementsByName(radio.name);
+   group.forEach(r=>r.wasChecked=false);
+   radio.wasChecked=true;
+ }
+}
+
+function saveFormLocalStorage(formId){
+ const state={};
+ if(formId==='f1'){
+   ['f1_nombre','f1_fecha','f1_ubicacion','f1_tel','f1_obs'].forEach(id=> state[id] = document.getElementById(id).value);
+   ['f1_calidad','f1_oportunidad','f1_atencion_sugerencias','f1_atencion_responde','f1_atencion_cumplimiento'].forEach(name=>{
+     const sel=document.querySelector(`input[name="${name}"]:checked`);
+     state[name]=sel ? sel.value : '';
+   });
+   state['f1_total_score'] = document.getElementById('f1_total_score').innerText;
+   state['f1_signature'] = document.getElementById('f1_signature_preview').src || '';
+ } else if(formId==='f2'){
+   ['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel','f2_eval_interior','f2_eval_seguimiento','f2_spec_score','f2_puntual_score','f2_atencion_score'].forEach(id=> state[id] = document.getElementById(id).value);
+   ['f2_spec','f2_puntual','f2_atencion','f2_reval'].forEach(name=>{
+     const sel=document.querySelector(`input[name="${name}"]:checked`);
+     state[name]=sel ? sel.value : '';
+   });
+   state['f2_signature'] = document.getElementById('f2_signature_preview').src || '';
+ } else if(formId==='f3'){
+   ['f3_nombre','f3_ubicacion','f3_fecha','f3_tel','f3_obs'].forEach(id=> state[id] = document.getElementById(id).value);
+   ['f3_calidad','f3_oport_entrega','f3_oport_cantidad','f3_oport_unidades','f3_atencion'].forEach(name=>{
+     const sel=document.querySelector(`input[name="${name}"]:checked`);
+     state[name]=sel ? sel.value : '';
+   });
+   state['f3_total_score'] = document.getElementById('f3_total_score').innerText;
+   state['f3_signature'] = document.getElementById('f3_signature_preview').src || '';
+ }
+ localStorage.setItem(`formState_${formId}`, JSON.stringify(state));
+}
+
+async function saveFormF1(){
+ saveFormLocalStorage('f1');
+ const status=document.getElementById('f1_save_status');
+ status.innerText='Guardando en Firebase...';
+ const saved = await saveFormToFirebase('evaluaciones_prestador_servicios', getFormData('f1'));
+ if (saved) {
+   status.innerText = 'Guardado en Firebase ✓';
+   resetF1();
+   loadSavedEntries('f1');
+ } else {
+   status.innerText = 'Error al guardar en Firebase';
+ }
+ setTimeout(()=>{status.innerText='';}, 4000);
+}
+
+async function saveFormF2(){
+ saveFormLocalStorage('f2');
+ const status=document.getElementById('f2_save_status');
+ status.innerText='Guardando en Firebase...';
+ const saved = await saveFormToFirebase('seguimiento_proveedores', getFormData('f2'));
+ if (saved) {
+   status.innerText = 'Guardado en Firebase ✓';
+   resetF2();
+   loadSavedEntries('f2');
+ } else {
+   status.innerText = 'Error al guardar en Firebase';
+ }
+ setTimeout(()=>{status.innerText='';}, 4000);
+}
+
+async function saveFormF3(){
+ saveFormLocalStorage('f3');
+ const status=document.getElementById('f3_save_status');
+ status.innerText='Guardando en Firebase...';
+ const saved = await saveFormToFirebase('evaluacion_compras', getFormData('f3'));
+ if (saved) {
+   status.innerText = 'Guardado en Firebase ✓';
+   resetF3();
+   loadSavedEntries('f3');
+ } else {
+   status.innerText = 'Error al guardar en Firebase';
+ }
+ setTimeout(()=>{status.innerText='';}, 4000);
+}
+
+function attachPersistenceHandlers(){
+ const f1fields=['f1_nombre','f1_fecha','f1_ubicacion','f1_tel','f1_obs'];
+ const f2fields=['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel','f2_eval_interior','f2_eval_seguimiento'];
+ const f3fields=['f3_nombre','f3_ubicacion','f3_fecha','f3_tel','f3_obs'];
+ f1fields.concat(f2fields,f3fields).forEach(id=>{
+   const el=document.getElementById(id);
+   if(el){el.addEventListener('input', ()=>{if(id.startsWith('f1')) saveFormLocalStorage('f1'); else if(id.startsWith('f2')) saveFormLocalStorage('f2'); else saveFormLocalStorage('f3');});}
+ });
+ ['f2_spec','f2_puntual','f2_atencion','f2_reval','f1_calidad','f1_oportunidad','f1_atencion_sugerencias','f1_atencion_responde','f1_atencion_cumplimiento','f3_calidad','f3_oport_entrega','f3_oport_cantidad','f3_oport_unidades','f3_atencion'].forEach(name=>{
+   document.querySelectorAll(`input[name="${name}"]`).forEach(r=>r.addEventListener('change', ()=>{ if(name.startsWith('f1')) calcF1(); else if(name.startsWith('f2')) calcF2(); else calcF3();}));
+ });
+}
+
+function loadFormLocalStorage(){
+ ['f1','f2','f3'].forEach(formId=>{
+   const saved=localStorage.getItem(`formState_${formId}`);
+   if(!saved) return;
+   const state=JSON.parse(saved);
+   Object.keys(state).forEach(key=>{
+     const el=document.getElementById(key);
+     if(el){
+       if(el.type==='checkbox') el.checked=state[key];
+       else el.value=state[key];
+     } else {
+       const radios = document.getElementsByName(key);
+       if(radios.length){
+         radios.forEach(r=>{r.checked = r.value===state[key]; r.wasChecked = r.checked;});
+       }
+     }
+   });
+   if (state['f1_signature'] && formId === 'f1') {
+     const preview = document.getElementById('f1_signature_preview');
+     preview.src = state['f1_signature'];
+     preview.style.display = preview.src ? 'block' : 'none';
+   }
+   if (state['f2_signature'] && formId === 'f2') {
+     const preview = document.getElementById('f2_signature_preview');
+     preview.src = state['f2_signature'];
+     preview.style.display = preview.src ? 'block' : 'none';
+   }
+   if (state['f3_signature'] && formId === 'f3') {
+     const preview = document.getElementById('f3_signature_preview');
+     preview.src = state['f3_signature'];
+     preview.style.display = preview.src ? 'block' : 'none';
+   }
+   if(formId==='f1') calcF1();
+   if(formId==='f2') calcF2();
+   if(formId==='f3') calcF3();
+ });
+}
+
+function resetF1(){
+ ['f1_nombre','f1_fecha','f1_ubicacion','f1_tel','f1_obs'].forEach(id=>document.getElementById(id).value='');
+ ['f1_calidad','f1_oportunidad','f1_atencion_sugerencias','f1_atencion_responde','f1_atencion_cumplimiento'].forEach(name=>{
+   document.querySelectorAll(`input[name="${name}"]`).forEach(r=>{r.checked=false;r.wasChecked=false;});
+ });
+ clearSignatureInput('f1_signature_input','f1_signature_preview');
+ calcF1();
+ saveFormLocalStorage('f1');
+}
+
+function resetF2(){
+ ['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel','f2_eval_interior','f2_eval_seguimiento','f2_spec_score','f2_puntual_score','f2_atencion_score'].forEach(id=>document.getElementById(id).value='');
+ ['f2_spec','f2_puntual','f2_atencion','f2_reval'].forEach(name=>{
+   document.querySelectorAll(`input[name="${name}"]`).forEach(r=>{r.checked=false;r.wasChecked=false;});
+ });
+ clearSignatureInput('f2_signature_input','f2_signature_preview');
+ calcF2();
+ saveFormLocalStorage('f2');
+}
+
+function resetF3(){
+ ['f3_nombre','f3_ubicacion','f3_fecha','f3_tel','f3_obs'].forEach(id=>document.getElementById(id).value='');
+ ['f3_calidad','f3_oport_entrega','f3_oport_cantidad','f3_oport_unidades','f3_atencion'].forEach(name=>{
+   document.querySelectorAll(`input[name="${name}"]`).forEach(r=>{r.checked=false;r.wasChecked=false;});
+ });
+ clearSignatureInput('f3_signature_input','f3_signature_preview');
+ calcF3();
+ saveFormLocalStorage('f3');
+}
+
+function login(){
+const userInput=document.getElementById('user');
+const passInput=document.getElementById('pass');
+const loginBox=document.getElementById('loginBox');
+const menu=document.getElementById('menu');
+
+if(userInput.value==='admin' && passInput.value==='1234'){
+loginBox.classList.add('hidden');
+menu.classList.remove('hidden');
+}else{alert('Incorrecto');}
+}
+
+function logout(){location.reload();}
+
+function mostrar(id){
+ ['f1','f2','f3'].forEach(x=>document.getElementById(x).classList.add('hidden'));
+ document.getElementById(id).classList.remove('hidden');
+ loadSavedEntries(id);
+}
+
+let f1_ctx, f2_ctx, f3_ctx;
+
+function loadSignature(event, previewId, formId) {
+  const input = event.target;
+  const preview = document.getElementById(previewId);
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+      saveFormLocalStorage(formId);
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function clearSignatureInput(inputId, previewId) {
+  const input = document.getElementById(inputId);
+  const preview = document.getElementById(previewId);
+  input.value = '';
+  preview.src = '';
+  preview.style.display = 'none';
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  attachPersistenceHandlers();
+  loadFormLocalStorage();
+});
+
+</script>
+
+</body>
+</html>
