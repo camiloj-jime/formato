@@ -607,7 +607,6 @@ button.danger:hover{background:#b91c1c;}
           <div style="margin-top:10px;line-height:1.5;">${getSavedEntryDetails(formId, data)}<br><small>${savedAt}</small></div>
           <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
             <button type="button" class="secondary" onclick="viewSavedEntry('${formId}','${doc.id}')">Ver página</button>
-            <button type="button" onclick="downloadSavedEntryPdf('${formId}','${doc.id}')">Descargar PDF</button>
             <button type="button" class="danger" onclick="deleteSavedEntry('${formId}','${doc.id}')">Eliminar</button>
           </div>
         </div>`;
@@ -780,7 +779,6 @@ button.danger:hover{background:#b91c1c;}
     <label>Desde <input type="date" id="f1_start_date"></label>
     <label>Hasta <input type="date" id="f1_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f1')">Actualizar</button>
-    <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f1')">Descargar PDF</button>
     <button type="button" class="danger" onclick="deleteAllSavedEntries('f1')">Eliminar todos</button>
   </div>
   <div id="f1_saved_list"></div>
@@ -865,7 +863,6 @@ button.danger:hover{background:#b91c1c;}
     <label>Desde <input type="date" id="f2_start_date"></label>
     <label>Hasta <input type="date" id="f2_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f2')">Actualizar</button>
-    <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f2')">Descargar PDF</button>
     <button type="button" class="danger" onclick="deleteAllSavedEntries('f2')">Eliminar todos</button>
   </div>
   <div id="f2_saved_list"></div>
@@ -967,7 +964,6 @@ button.danger:hover{background:#b91c1c;}
     <label>Desde <input type="date" id="f3_start_date"></label>
     <label>Hasta <input type="date" id="f3_end_date"></label>
     <button type="button" onclick="loadSavedEntries('f3')">Actualizar</button>
-    <button type="button" class="download-button" onclick="downloadSavedEntriesPdf('f3')">Descargar PDF</button>
     <button type="button" class="danger" onclick="deleteAllSavedEntries('f3')">Eliminar todos</button>
   </div>
   <div id="f3_saved_list"></div>
