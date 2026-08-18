@@ -46,6 +46,10 @@ button.secondary:hover{background:#e2e8f0;}
 button.danger{background:#dc2626;color:#ffffff;}
 button.danger:hover{background:#b91c1c;}
 .button-row{display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end;align-items:center;margin-top:18px;}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin:18px 0 22px;}
+.stat-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px;padding:16px 18px;box-shadow:0 10px 24px rgba(15,23,42,.04);}
+.stat-label{display:block;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:8px;}
+.stat-box strong{display:block;font-size:1.5rem;color:#0f172a;}
 .hidden{display:none;}
 .signature-preview{max-width:100%;max-height:140px;margin-top:10px;border:1px solid #cbd5e1;background:#ffffff;padding:10px;border-radius:18px;display:none;}
 .saved-entries{margin-top:28px;}
@@ -77,6 +81,7 @@ button.danger:hover{background:#b91c1c;}
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
   const firebaseConfig = {
     apiKey: "AIzaSyDOhkubFKg4FxOqEsgD06RDN4jS_gGANQk",
@@ -136,17 +141,21 @@ button.danger:hover{background:#b91c1c;}
       initFirebaseAuthListener();
 
       try {
+        console.log('Attempting anonymous sign-in...');
         const credential = await auth.signInAnonymously();
+        console.log('Anonymous sign-in successful:', credential);
         currentUser = credential.user;
         if (currentUser) {
+          console.log('Current user set to:', currentUser.uid);
           updateFirebaseStatus('Firebase conectado. UID: ' + currentUser.uid);
+          firebaseAuthError = null;
           return true;
         }
         throw new Error('No se obtuvo usuario anónimo.');
       } catch (error) {
+        console.error('Firebase anonymous auth failed:', error);
         firebaseAuthError = error;
         updateFirebaseStatus('Error auth Firebase: ' + error.message, true);
-        console.error('Firebase anonymous auth failed:', error);
         return false;
       }
     })();
@@ -156,23 +165,36 @@ button.danger:hover{background:#b91c1c;}
 
   async function ensureFirebaseAuth() {
     if (currentUser) return true;
-    if (firebaseAuthError) return false;
-    return await initializeFirebaseAuth();
+    if (firebaseAuthError) {
+      console.warn('Firebase had previous error, attempting reinit:', firebaseAuthError);
+      firebaseAuthError = null;
+      firebaseInitPromise = null;
+    }
+    const result = await initializeFirebaseAuth();
+    console.log('ensureFirebaseAuth result:', result, 'currentUser:', currentUser ? 'yes' : 'no');
+    return currentUser && result;
   }
 
   initializeFirebaseAuth();
 
   async function saveFormToFirebase(collectionName, formData) {
+    console.log('saveFormToFirebase: attempting to save to', collectionName, 'currentUser:', currentUser ? 'yes' : 'no');
     const authOk = await ensureFirebaseAuth();
+    console.log('saveFormToFirebase: authOk=', authOk, 'currentUser=', currentUser ? 'yes' : 'no');
     if (!authOk || !currentUser) {
       const msg = firebaseAuthError?.message || 'No Firebase auth user available yet or anonymous auth failed';
-      console.error(msg, firebaseAuthError);
+      console.error('Firebase auth failed:', msg, firebaseAuthError);
       updateFirebaseStatus('No se puede guardar: ' + msg, true);
       return { ok: false, error: msg };
     }
     try {
       formData.savedAt = firebase.firestore.FieldValue.serverTimestamp();
+      console.log('Saving to Firebase:', collectionName, formData);
       const ref = await db.collection(collectionName).add(formData);
+      console.log('Document saved with ID:', ref.id);
+      if (typeof loadAnnualPerformance === 'function') {
+        loadAnnualPerformance();
+      }
       return { ok: true, id: ref.id };
     } catch (error) {
       console.error('Firebase save error:', error);
@@ -269,7 +291,7 @@ button.danger:hover{background:#b91c1c;}
       if (key.endsWith('_signature') && value.startsWith('data:image')) {
         return `<tr><td style="padding:12px 14px;border:1px solid #d1d5db;background:#f8fafc;font-weight:700;">${getFieldLabel(key)}</td><td style="padding:12px 14px;border:1px solid #d1d5db;"><img src="${value}" style="max-width:320px;max-height:220px;border-radius:12px;border:1px solid #cbd5e1;"></td></tr>`;
       }
-      return `<tr><td style="padding:12px 14px;border:1px solid #d1d5db;background:#f8fafc;font-weight:700;width:30%;">${getFieldLabel(key)}</td><td style="padding:12px 14px;border:1px solid #d1d5e;color:#1f2937;">${value}</td></tr>`;
+      return `<tr><td style="padding:12px 14px;border:1px solid #d1d5db;background:#f8fafc;font-weight:700;width:30%;">${getFieldLabel(key)}</td><td style="padding:12px 14px;border:1px solid #d1d5db;color:#1f2937;">${value}</td></tr>`;
     }).join('');
     const savedAt = data.savedAt && data.savedAt.toDate ? data.savedAt.toDate().toLocaleString() : data.savedAtLocal || '';
     return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>${title}</title><style>body{font-family:Inter,system-ui,Arial,sans-serif;margin:24px;color:#111827;background:#f8fafc;}header{padding:24px 24px 18px;border-radius:24px;background:linear-gradient(135deg,#2563eb,#5b21b6);color:#fff;margin-bottom:24px;box-shadow:0 18px 40px rgba(15,23,42,.12);}h1{margin:0;font-size:28px;letter-spacing:.02em;}p{margin:10px 0 0;font-size:14px;opacity:.88;}table{width:100%;border-collapse:collapse;margin-top:24px;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08);}td{vertical-align:top;font-size:13px;color:#1f2937;}tr:nth-child(even) td{background:#f8fafc;} .footer{margin-top:26px;font-size:0.95rem;color:#475569;} .print-button{display:inline-flex;align-items:center;gap:10px;margin-top:18px;padding:12px 18px;background:#2563eb;color:#fff;border:none;border-radius:14px;cursor:pointer;font-weight:700;text-decoration:none;} .info-box{margin-top:16px;padding:18px 20px;border-radius:20px;background:#eef2ff;color:#1e40af;box-shadow:0 10px 25px rgba(37,99,235,.12);font-size:0.95rem;}</style></head><body><header><h1>${title}</h1><p>Documento oficial de registro guardado en Firebase.</p></header><div class="info-box">Guardado: ${savedAt}</div><table>${fieldsHtml}</table><div class="footer">Si desea conservar este formulario, use el botón de impresión del navegador y elija “Guardar como PDF”.</div><button class="print-button" onclick="window.print()">Imprimir / Guardar como PDF</button></body></html>`;
@@ -512,6 +534,482 @@ button.danger:hover{background:#b91c1c;}
     return '';
   }
 
+  function parseNumericValue(value) {
+    if (value === null || value === undefined || value === '') return NaN;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+    const cleaned = String(value).trim().replace(/[%,$\s]/g, '').replace(',', '.');
+    const parsed = Number(cleaned);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
+  function getScoreFromEntry(formId, data) {
+    if (formId === 'f1') return parseNumericValue(data.f1_total_score);
+    if (formId === 'f2') {
+      const candidates = [data.f2_eval_interior, data.f2_eval_seguimiento, data.f2_spec_score, data.f2_puntual_score, data.f2_atencion_score];
+      for (const candidate of candidates) {
+        const n = parseNumericValue(candidate);
+        if (!Number.isNaN(n)) return n;
+      }
+      return NaN;
+    }
+    if (formId === 'f3') return parseNumericValue(data.f3_total_score);
+    return NaN;
+  }
+
+  function getDateFromEntry(formId, data) {
+    if (data.savedAt && typeof data.savedAt.toDate === 'function') {
+      return data.savedAt.toDate();
+    }
+    if (data.savedAtLocal) {
+      const date = new Date(data.savedAtLocal);
+      if (!Number.isNaN(date.getTime())) return date;
+    }
+    const fallbackField = formId === 'f1' ? data.f1_fecha : formId === 'f2' ? data.f2_fecha : data.f3_fecha;
+    if (!fallbackField) return null;
+    const date = new Date(fallbackField);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function initializeAnnualDashboard() {
+    const yearSelect = document.getElementById('performance_year');
+    if (!yearSelect) {
+      console.warn('performance_year element not found');
+      return;
+    }
+    const currentYear = new Date().getFullYear();
+    const values = [currentYear - 1, currentYear, currentYear + 1];
+    yearSelect.innerHTML = values.map(year => `<option value="${year}">${year}</option>`).join('');
+    yearSelect.value = String(currentYear);
+    loadSuppliers();
+  }
+
+  async function loadSuppliers() {
+    const supplierSelect = document.getElementById('performance_supplier');
+    if (!supplierSelect) {
+      console.warn('performance_supplier element not found');
+      return;
+    }
+    const suppliers = new Set();
+    try {
+      const collections = ['evaluaciones_prestador_servicios', 'seguimiento_proveedores', 'evaluacion_compras'];
+      for (const collection of collections) {
+        try {
+          const snapshot = await db.collection(collection).get();
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            let supplierName = null;
+            if (data.f1_nombre) supplierName = data.f1_nombre;
+            else if (data.f2_nombre) supplierName = data.f2_nombre;
+            else if (data.f2_razon) supplierName = data.f2_razon;
+            else if (data.f3_nombre) supplierName = data.f3_nombre;
+            if (supplierName && typeof supplierName === 'string') suppliers.add(supplierName.trim());
+          });
+        } catch (error) {
+          console.error(`Error loading suppliers from ${collection}:`, error);
+        }
+      }
+      const sortedSuppliers = Array.from(suppliers).sort();
+      supplierSelect.innerHTML = `<option value="">-- Ver todos --</option>` + sortedSuppliers.map(name => `<option value="${name}">${name}</option>`).join('');
+    } catch (error) {
+      console.error('Error loading suppliers:', error);
+      supplierSelect.innerHTML = `<option value="">-- Error cargando proveedores --</option>`;
+    }
+  }
+
+  async function loadAnnualPerformance() {
+    const yearSelect = document.getElementById('performance_year');
+    const supplierSelect = document.getElementById('performance_supplier');
+    if (!yearSelect) {
+      console.warn('performance_year element not found');
+      return;
+    }
+    const selectedYear = Number(yearSelect.value || new Date().getFullYear());
+    const selectedSupplier = supplierSelect ? (supplierSelect.value || '') : '';
+
+    if (selectedSupplier) {
+      await loadSupplierHistory(selectedSupplier, selectedYear);
+    } else {
+      await loadAnnualOverview(selectedYear);
+    }
+  }
+
+  async function loadAnnualOverview(selectedYear) {
+    const formConfigs = [
+      { id: 'f1', label: 'Prestador', collection: 'evaluaciones_prestador_servicios', color: '#2563eb' },
+      { id: 'f2', label: 'Seguimiento', collection: 'seguimiento_proveedores', color: '#10b981' },
+      { id: 'f3', label: 'Compras', collection: 'evaluacion_compras', color: '#f59e0b' }
+    ];
+
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const datasets = [];
+    const allScores = [];
+    let totalRecords = 0;
+
+    for (const formConfig of formConfigs) {
+      const snapshot = await db.collection(formConfig.collection).get();
+      const monthValues = Array.from({ length: 12 }, () => []);
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        const date = getDateFromEntry(formConfig.id, data);
+        if (!date || date.getFullYear() !== selectedYear) return;
+        const score = getScoreFromEntry(formConfig.id, data);
+        if (Number.isNaN(score)) return;
+        monthValues[date.getMonth()].push(score);
+        allScores.push(score);
+        totalRecords += 1;
+      });
+
+      const monthlyAverages = monthValues.map(values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+      datasets.push({
+        label: formConfig.label,
+        data: monthlyAverages,
+        borderColor: formConfig.color,
+        backgroundColor: formConfig.color + '22',
+        borderWidth: 2.5,
+        fill: false,
+        tension: 0.35,
+        pointRadius: 4,
+        pointHoverRadius: 5
+      });
+    }
+
+    renderChart(monthNames, datasets);
+
+    const avgScore = allScores.length ? allScores.reduce((sum, value) => sum + value, 0) / allScores.length : 0;
+    document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
+    document.getElementById('performance_total_records').textContent = String(totalRecords);
+
+    const monthAverageByIndex = monthNames.map((_, monthIndex) => {
+      const values = datasets.flatMap(dataset => dataset.data[monthIndex] !== null ? [dataset.data[monthIndex]] : []);
+      if (!values.length) return null;
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    });
+    const bestMonthIndex = monthAverageByIndex.reduce((best, value, index, array) => {
+      if (value === null) return best;
+      if (best === null || value > array[best]) return index;
+      return best;
+    }, null);
+    document.getElementById('performance_best_month').textContent = bestMonthIndex === null ? '-' : monthNames[bestMonthIndex];
+  }
+
+  async function loadSupplierHistory(supplierName, selectedYear) {
+    const formConfigs = [
+      { id: 'f1', label: 'Prestador', collection: 'evaluaciones_prestador_servicios', nameField: 'f1_nombre', color: '#2563eb' },
+      { id: 'f2', label: 'Seguimiento', collection: 'seguimiento_proveedores', nameFields: ['f2_nombre', 'f2_razon'], color: '#10b981' },
+      { id: 'f3', label: 'Compras', collection: 'evaluacion_compras', nameField: 'f3_nombre', color: '#f59e0b' }
+    ];
+
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const allRecords = [];
+    let totalRecords = 0;
+    let avgScore = 0;
+
+    for (const formConfig of formConfigs) {
+      const snapshot = await db.collection(formConfig.collection).get();
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        let currentSupplierName = null;
+        if (formConfig.nameField) {
+          currentSupplierName = data[formConfig.nameField];
+        } else if (formConfig.nameFields) {
+          currentSupplierName = formConfig.nameFields.map(field => data[field]).filter(name => name).join(' ');
+        }
+        if (currentSupplierName !== supplierName) return;
+        const date = getDateFromEntry(formConfig.id, data);
+        if (!date || date.getFullYear() !== selectedYear) return;
+        const score = getScoreFromEntry(formConfig.id, data);
+        if (Number.isNaN(score)) return;
+        allRecords.push({
+          date,
+          month: date.getMonth(),
+          score,
+          formType: formConfig.label
+        });
+        totalRecords += 1;
+      });
+    }
+
+    allRecords.sort((a, b) => a.date - b.date);
+    const monthlyScores = Array.from({ length: 12 }, () => []);
+    allRecords.forEach(record => monthlyScores[record.month].push(record.score));
+    const monthlyAverages = monthlyScores.map(values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+    avgScore = allRecords.length ? allRecords.reduce((sum, record) => sum + record.score, 0) / allRecords.length : 0;
+
+    const datasets = [{
+      label: supplierName,
+      data: monthlyAverages,
+      borderColor: '#8b5cf6',
+      backgroundColor: '#8b5cf622',
+      borderWidth: 3,
+      fill: false,
+      tension: 0.35,
+      pointRadius: 5,
+      pointHoverRadius: 6
+    }];
+
+    renderChart(monthNames, datasets);
+
+    document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
+    document.getElementById('performance_total_records').textContent = String(totalRecords);
+    document.getElementById('performance_best_month').textContent = allRecords.length ? new Date(allRecords[allRecords.length - 1].date).toLocaleDateString('es-ES') : '-';
+  }
+
+  function renderChart(monthNames, datasets) {
+    const canvas = document.getElementById('annual_performance_chart');
+    if (!canvas) return;
+
+    if (window.annualPerformanceChart) {
+      window.annualPerformanceChart.destroy();
+    }
+
+    window.annualPerformanceChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: monthNames,
+        datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              label: context => `${context.dataset.label}: ${context.parsed.y !== null ? context.parsed.y.toFixed(1) : 'N/A'}%`
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: false,
+            min: 0,
+            max: 100,
+            ticks: { callback: value => `${value}%` }
+          }
+        }
+      }
+    });
+  }
+
+  // DASHBOARDS FOR INDIVIDUAL FORMS
+  function initF1Dashboard() {
+    const yearSelect = document.getElementById('f1_dashboard_year');
+    if (!yearSelect) return;
+    const currentYear = new Date().getFullYear();
+    yearSelect.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(year => `<option value="${year}">${year}</option>`).join('');
+    yearSelect.value = String(currentYear);
+    loadF1Dashboard();
+  }
+
+  async function loadF1Dashboard() {
+    const yearSelect = document.getElementById('f1_dashboard_year');
+    if (!yearSelect) return;
+    const selectedYear = Number(yearSelect.value);
+    
+    const snapshot = await db.collection('evaluaciones_prestador_servicios').get();
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthCalidad = Array(12).fill(null).map(() => []);
+    const monthOportunidad = Array(12).fill(null).map(() => []);
+    const monthAtencion = Array(12).fill(null).map(() => []);
+    const monthTotal = Array(12).fill(null).map(() => []);
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const date = getDateFromEntry('f1', data);
+      if (!date || date.getFullYear() !== selectedYear) return;
+      const month = date.getMonth();
+      
+      const calidad = parseNumericValue(data.f1_calidad);
+      const oportunidad = parseNumericValue(data.f1_oportunidad);
+      const atencion = parseNumericValue(data.f1_atencion_sugerencias);
+      const total = parseNumericValue(data.f1_total_score);
+      
+      if (!Number.isNaN(calidad)) monthCalidad[month].push(calidad);
+      if (!Number.isNaN(oportunidad)) monthOportunidad[month].push(oportunidad);
+      if (!Number.isNaN(atencion)) monthAtencion[month].push(atencion);
+      if (!Number.isNaN(total)) monthTotal[month].push(total);
+    });
+    
+    const avgCalidad = monthCalidad.flat();
+    const avgOportunidad = monthOportunidad.flat();
+    const avgAtencion = monthAtencion.flat();
+    const avgTotal = monthTotal.flat();
+    
+    document.getElementById('f1_dashboard_calidad').textContent = avgCalidad.length ? (avgCalidad.reduce((a,b)=>a+b)/avgCalidad.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f1_dashboard_oportunidad').textContent = avgOportunidad.length ? (avgOportunidad.reduce((a,b)=>a+b)/avgOportunidad.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f1_dashboard_atencion').textContent = avgAtencion.length ? (avgAtencion.reduce((a,b)=>a+b)/avgAtencion.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f1_dashboard_avg').textContent = avgTotal.length ? (avgTotal.reduce((a,b)=>a+b)/avgTotal.length).toFixed(1)+'%' : '0%';
+    
+    const calidadAvg = monthCalidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const oportunidadAvg = monthOportunidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const atencionAvg = monthAtencion.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    
+    const canvas = document.getElementById('f1_dashboard_chart');
+    if (window.f1Chart) window.f1Chart.destroy();
+    window.f1Chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: monthNames,
+        datasets: [
+          { label: 'Calidad', data: calidadAvg, borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Oportunidad', data: oportunidadAvg, borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Atención', data: atencionAvg, borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(1) : 'N/A'}%` } } },
+        scales: { y: { beginAtZero: false, min: 0, max: 100, ticks: { callback: value => `${value}%` } } }
+      }
+    });
+  }
+
+  function initF2Dashboard() {
+    const yearSelect = document.getElementById('f2_dashboard_year');
+    if (!yearSelect) return;
+    const currentYear = new Date().getFullYear();
+    yearSelect.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(year => `<option value="${year}">${year}</option>`).join('');
+    yearSelect.value = String(currentYear);
+    loadF2Dashboard();
+  }
+
+  async function loadF2Dashboard() {
+    const yearSelect = document.getElementById('f2_dashboard_year');
+    if (!yearSelect) return;
+    const selectedYear = Number(yearSelect.value);
+    
+    const snapshot = await db.collection('seguimiento_proveedores').get();
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthSpec = Array(12).fill(null).map(() => []);
+    const monthPuntual = Array(12).fill(null).map(() => []);
+    const monthAtencion = Array(12).fill(null).map(() => []);
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const date = getDateFromEntry('f2', data);
+      if (!date || date.getFullYear() !== selectedYear) return;
+      const month = date.getMonth();
+      
+      const spec = parseNumericValue(data.f2_spec_score);
+      const puntual = parseNumericValue(data.f2_puntual_score);
+      const atencion = parseNumericValue(data.f2_atencion_score);
+      
+      if (!Number.isNaN(spec)) monthSpec[month].push(spec);
+      if (!Number.isNaN(puntual)) monthPuntual[month].push(puntual);
+      if (!Number.isNaN(atencion)) monthAtencion[month].push(atencion);
+    });
+    
+    const allSpec = monthSpec.flat();
+    const allPuntual = monthPuntual.flat();
+    const allAtencion = monthAtencion.flat();
+    
+    document.getElementById('f2_dashboard_spec').textContent = allSpec.length ? (allSpec.reduce((a,b)=>a+b)/allSpec.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f2_dashboard_puntual').textContent = allPuntual.length ? (allPuntual.reduce((a,b)=>a+b)/allPuntual.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f2_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a,b)=>a+b)/allAtencion.length).toFixed(1)+'%' : '0%';
+    
+    const specAvg = monthSpec.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const puntualAvg = monthPuntual.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const atencionAvg = monthAtencion.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    
+    const canvas = document.getElementById('f2_dashboard_chart');
+    if (window.f2Chart) window.f2Chart.destroy();
+    window.f2Chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: monthNames,
+        datasets: [
+          { label: 'Especificaciones', data: specAvg, borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Puntualidad', data: puntualAvg, borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Atención', data: atencionAvg, borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(1) : 'N/A'}%` } } },
+        scales: { y: { beginAtZero: false, min: 0, max: 100, ticks: { callback: value => `${value}%` } } }
+      }
+    });
+  }
+
+  function initF3Dashboard() {
+    const yearSelect = document.getElementById('f3_dashboard_year');
+    if (!yearSelect) return;
+    const currentYear = new Date().getFullYear();
+    yearSelect.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(year => `<option value="${year}">${year}</option>`).join('');
+    yearSelect.value = String(currentYear);
+    loadF3Dashboard();
+  }
+
+  async function loadF3Dashboard() {
+    const yearSelect = document.getElementById('f3_dashboard_year');
+    if (!yearSelect) return;
+    const selectedYear = Number(yearSelect.value);
+    
+    const snapshot = await db.collection('evaluacion_compras').get();
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthCalidad = Array(12).fill(null).map(() => []);
+    const monthEntrega = Array(12).fill(null).map(() => []);
+    const monthCantidad = Array(12).fill(null).map(() => []);
+    const monthAtencion = Array(12).fill(null).map(() => []);
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const date = getDateFromEntry('f3', data);
+      if (!date || date.getFullYear() !== selectedYear) return;
+      const month = date.getMonth();
+      
+      const calidad = parseNumericValue(data.f3_calidad);
+      const entrega = parseNumericValue(data.f3_oport_entrega);
+      const cantidad = parseNumericValue(data.f3_oport_cantidad);
+      const atencion = parseNumericValue(data.f3_atencion);
+      
+      if (!Number.isNaN(calidad)) monthCalidad[month].push(calidad);
+      if (!Number.isNaN(entrega)) monthEntrega[month].push(entrega);
+      if (!Number.isNaN(cantidad)) monthCantidad[month].push(cantidad);
+      if (!Number.isNaN(atencion)) monthAtencion[month].push(atencion);
+    });
+    
+    const allCalidad = monthCalidad.flat();
+    const allEntrega = monthEntrega.flat();
+    const allCantidad = monthCantidad.flat();
+    const allAtencion = monthAtencion.flat();
+    
+    document.getElementById('f3_dashboard_calidad').textContent = allCalidad.length ? (allCalidad.reduce((a,b)=>a+b)/allCalidad.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f3_dashboard_entrega').textContent = allEntrega.length ? (allEntrega.reduce((a,b)=>a+b)/allEntrega.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f3_dashboard_cantidad').textContent = allCantidad.length ? (allCantidad.reduce((a,b)=>a+b)/allCantidad.length).toFixed(1)+'%' : '0%';
+    document.getElementById('f3_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a,b)=>a+b)/allAtencion.length).toFixed(1)+'%' : '0%';
+    
+    const calidadAvg = monthCalidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const entregaAvg = monthEntrega.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const cantidadAvg = monthCantidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    const atencionAvg = monthAtencion.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
+    
+    const canvas = document.getElementById('f3_dashboard_chart');
+    if (window.f3Chart) window.f3Chart.destroy();
+    window.f3Chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: monthNames,
+        datasets: [
+          { label: 'Calidad', data: calidadAvg, borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Entrega', data: entregaAvg, borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Cantidad', data: cantidadAvg, borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Atención', data: atencionAvg, borderColor: '#8b5cf6', backgroundColor: '#8b5cf622', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(1) : 'N/A'}%` } } },
+        scales: { y: { beginAtZero: false, min: 0, max: 100, ticks: { callback: value => `${value}%` } } }
+      }
+    });
+  }
+
   async function loadLatestFormFromFirebase(formId) {
     const collectionName = getCollectionName(formId);
     if (!collectionName) return;
@@ -711,9 +1209,66 @@ button.danger:hover{background:#b91c1c;}
 <button onclick="logout()">Cerrar Sesión</button>
 </div>
 
+<!-- DASHBOARD -->
+<div id="dashboard" class="formato hidden">
+  <h4 class="center">DASHBOARD DE RENDIMIENTO</h4>
+  <div class="filter-row">
+    <label>Proveedor
+      <select id="performance_supplier" style="min-width:200px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadAnnualPerformance()"></select>
+    </label>
+    <label>Año
+      <select id="performance_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadAnnualPerformance()"></select>
+    </label>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-box">
+      <span class="stat-label">Promedio</span>
+      <strong id="performance_avg_score">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Total registros</span>
+      <strong id="performance_total_records">0</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Ultima evaluacion</span>
+      <strong id="performance_best_month">-</strong>
+    </div>
+  </div>
+  <canvas id="annual_performance_chart" height="120"></canvas>
+</div>
+
 <!-- FORMATO 1 -->
 <div id="f1" class="formato hidden">
 <h4 class="center">FORMATO DE EVALUACIÓN PARA PRESTADOR DE SERVICIOS</h4>
+
+<!-- DASHBOARD F1 -->
+<div id="f1_dashboard" style="background:#f0f4ff;border-radius:20px;padding:20px;margin-bottom:24px;">
+  <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO GENERAL</h5>
+  <div class="filter-row">
+    <label>Año
+      <select id="f1_dashboard_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadF1Dashboard()"></select>
+    </label>
+  </div>
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+    <div class="stat-box">
+      <span class="stat-label">Prom. Total</span>
+      <strong id="f1_dashboard_avg">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Calidad</span>
+      <strong id="f1_dashboard_calidad">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Oportunidad</span>
+      <strong id="f1_dashboard_oportunidad">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Atención</span>
+      <strong id="f1_dashboard_atencion">0%</strong>
+    </div>
+  </div>
+  <canvas id="f1_dashboard_chart" style="margin-top:16px;" height="80"></canvas>
+</div>
 
 <table>
 <tr><td>Nombre:</td><td class="line"><input id="f1_nombre" placeholder="Proveedor"></td><td>Fecha:</td><td class="line"><input id="f1_fecha" type="date"></td></tr>
@@ -788,6 +1343,31 @@ button.danger:hover{background:#b91c1c;}
 <!-- FORMATO 2 -->
 <div id="f2" class="formato hidden">
 <h4 class="center">FORMATO DE SEGUIMIENTO A PROVEEDORES</h4>
+
+<!-- DASHBOARD F2 -->
+<div id="f2_dashboard" style="background:#f0fdf4;border-radius:20px;padding:20px;margin-bottom:24px;">
+  <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO DE SEGUIMIENTO</h5>
+  <div class="filter-row">
+    <label>Año
+      <select id="f2_dashboard_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadF2Dashboard()"></select>
+    </label>
+  </div>
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+    <div class="stat-box">
+      <span class="stat-label">Prom. Especificaciones</span>
+      <strong id="f2_dashboard_spec">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Puntualidad</span>
+      <strong id="f2_dashboard_puntual">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Atención</span>
+      <strong id="f2_dashboard_atencion">0%</strong>
+    </div>
+  </div>
+  <canvas id="f2_dashboard_chart" style="margin-top:16px;" height="80"></canvas>
+</div>
 
 <table>
 <tr><td>Razón social:</td><td class="line"><input id="f2_razon" placeholder="Razón social"></td><td>NIT:</td><td class="line"><input id="f2_nit" placeholder="NIT"></td></tr>
@@ -872,6 +1452,35 @@ button.danger:hover{background:#b91c1c;}
 <!-- FORMATO 3 -->
 <div id="f3" class="formato hidden">
 <h4 class="center">EVALUACIÓN DE PROVEEDORES POR COMPRAS</h4>
+
+<!-- DASHBOARD F3 -->
+<div id="f3_dashboard" style="background:#fffbf0;border-radius:20px;padding:20px;margin-bottom:24px;">
+  <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO DE COMPRAS</h5>
+  <div class="filter-row">
+    <label>Año
+      <select id="f3_dashboard_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadF3Dashboard()"></select>
+    </label>
+  </div>
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
+    <div class="stat-box">
+      <span class="stat-label">Prom. Calidad</span>
+      <strong id="f3_dashboard_calidad">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Entrega</span>
+      <strong id="f3_dashboard_entrega">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Cantidad</span>
+      <strong id="f3_dashboard_cantidad">0%</strong>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Prom. Atención</span>
+      <strong id="f3_dashboard_atencion">0%</strong>
+    </div>
+  </div>
+  <canvas id="f3_dashboard_chart" style="margin-top:16px;" height="80"></canvas>
+</div>
 
 <table>
 <tr><td>Nombre:</td><td class="line"><input id="f3_nombre" placeholder="Nombre del proveedor"></td><td>Ubicación:</td><td class="line"><input id="f3_ubicacion" placeholder="Ubicación"></td></tr>
@@ -1075,11 +1684,18 @@ function saveFormLocalStorage(formId){
 }
 
 async function saveFormF1(){
+ if (!document.getElementById('f1_nombre').value.trim()) {
+   alert('Por favor completa el nombre del proveedor');
+   return;
+ }
+ console.log('saveFormF1: starting');
  const formData = getFormData('f1');
  saveFormLocalStorage('f1');
  const status=document.getElementById('f1_save_status');
  status.innerText='Guardando en Firebase...';
+ console.log('saveFormF1: calling saveFormToFirebase with data:', formData);
  const result = await saveFormToFirebase('evaluaciones_prestador_servicios', formData);
+ console.log('saveFormF1: result=', result);
  if (result && result.ok) {
    status.innerText = 'Guardado en Firebase ✓';
    formData.savedAtLocal = new Date().toISOString();
@@ -1095,6 +1711,10 @@ async function saveFormF1(){
 }
 
 async function saveFormF2(){
+ if (!document.getElementById('f2_nombre').value.trim() && !document.getElementById('f2_razon').value.trim()) {
+   alert('Por favor completa el nombre o razón social del proveedor');
+   return;
+ }
  const formData = getFormData('f2');
  saveFormLocalStorage('f2');
  const status=document.getElementById('f2_save_status');
@@ -1115,6 +1735,10 @@ async function saveFormF2(){
 }
 
 async function saveFormF3(){
+ if (!document.getElementById('f3_nombre').value.trim()) {
+   alert('Por favor completa el nombre del proveedor');
+   return;
+ }
  const formData = getFormData('f3');
  saveFormLocalStorage('f3');
  const status=document.getElementById('f3_save_status');
@@ -1233,6 +1857,9 @@ function mostrar(id){
  ['f1','f2','f3'].forEach(x=>document.getElementById(x).classList.add('hidden'));
  document.getElementById(id).classList.remove('hidden');
  loadSavedEntries(id);
+ if (id === 'f1') initF1Dashboard();
+ else if (id === 'f2') initF2Dashboard();
+ else if (id === 'f3') initF3Dashboard();
 }
 
 let f1_ctx, f2_ctx, f3_ctx;
@@ -1262,35 +1889,54 @@ function clearSignatureInput(inputId, previewId) {
 window.addEventListener('DOMContentLoaded', () => {
   attachPersistenceHandlers();
   loadFormLocalStorage();
+  initializeAnnualDashboard();
 });
 
 async function testFirebaseConnection(){
   try{
-    const statusMsg = document.createElement('div');
-    const result = await saveFormToFirebase('diagnostic', { test: 'ping', ts: new Date().toISOString() });
-    if (result && result.ok) {
-      alert('Conexión OK — documento creado: ' + result.id);
-      console.log('Diagnostic write OK', result);
-      return true;
-    } else {
-      const msg = result && result.error ? result.error : 'Error desconocido';
-      alert('Error al conectar con Firebase: ' + msg);
-      console.error('Diagnostic error', result);
-      return false;
+    console.log('testFirebaseConnection: starting');
+    console.log('currentUser:', currentUser ? currentUser.uid : 'null');
+    console.log('firebaseAuthError:', firebaseAuthError);
+    
+    if (!currentUser) {
+      const initOk = await ensureFirebaseAuth();
+      console.log('testFirebaseConnection: ensureFirebaseAuth returned', initOk);
+      if (!currentUser) {
+        alert('Firebase no autenticado. Error: ' + (firebaseAuthError?.message || 'Desconocido'));
+        console.error('testFirebaseConnection: currentUser is still null');
+        return false;
+      }
     }
+    
+    console.log('testFirebaseConnection: attempting write to Firebase');
+    const timestamp = new Date().toISOString();
+    const testData = { 
+      test: 'ping', 
+      ts: timestamp,
+      uid: currentUser.uid,
+      userAgent: navigator.userAgent 
+    };
+    
+    const ref = await db.collection('evaluaciones_prestador_servicios').add(testData);
+    console.log('testFirebaseConnection: write successful, docId:', ref.id);
+    alert('✓ Firebase conectado correctamente\nUID: ' + currentUser.uid + '\nDocumento de prueba guardado: ' + ref.id);
+    return true;
   } catch(e){
-    alert('Excepción al probar Firebase: ' + (e && e.message ? e.message : String(e)));
-    console.error('Exception testing Firebase', e);
+    console.error('testFirebaseConnection: Exception', e);
+    const errorMsg = e && e.message ? e.message : String(e);
+    alert('✗ Error en Firebase:\n' + errorMsg + '\n\nRevisa la consola (F12) para más detalles.');
     return false;
   }
 }
 
-// add a small diagnostic button to the page
-const diagBtn = document.createElement('button');
-diagBtn.textContent = 'Probar Firebase';
-diagBtn.className = 'diag-btn';
-diagBtn.onclick = testFirebaseConnection;
-document.addEventListener('DOMContentLoaded', ()=>{ document.body.appendChild(diagBtn); });
+// Add diagnostic button after page loads
+window.addEventListener('DOMContentLoaded', () => {
+  const diagBtn = document.createElement('button');
+  diagBtn.textContent = 'Probar Firebase';
+  diagBtn.className = 'diag-btn';
+  diagBtn.onclick = testFirebaseConnection;
+  document.body.appendChild(diagBtn);
+});
 
 </script>
 
