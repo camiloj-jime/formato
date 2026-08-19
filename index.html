@@ -619,10 +619,25 @@ button.danger:hover{background:#b91c1c;}
     return localDate.toISOString().slice(0, 10);
   }
 
+  function normalizeSupplierName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
+  }
+
+  function getSupplierNameCandidates(data, formId) {
+    if (formId === 'f1') return [data.f1_nombre];
+    if (formId === 'f2') return [data.f2_nombre, data.f2_razon];
+    if (formId === 'f3') return [data.f3_nombre];
+    return [];
+  }
+
   async function loadSuppliers() {
     const supplierSelect = document.getElementById('performance_supplier');
     if (!supplierSelect) {
       console.warn('performance_supplier element not found');
+      return;
+    }
+    if (!(await ensureFirebaseAuth())) {
+      supplierSelect.innerHTML = '<option value="">-- Firebase no disponible --</option>';
       return;
     }
     const suppliers = new Set();
@@ -633,12 +648,10 @@ button.danger:hover{background:#b91c1c;}
           const snapshot = await db.collection(collection).get();
           snapshot.forEach(doc => {
             const data = doc.data();
-            let supplierName = null;
-            if (data.f1_nombre) supplierName = data.f1_nombre;
-            else if (data.f2_nombre) supplierName = data.f2_nombre;
-            else if (data.f2_razon) supplierName = data.f2_razon;
-            else if (data.f3_nombre) supplierName = data.f3_nombre;
-            if (supplierName && typeof supplierName === 'string') suppliers.add(supplierName.trim());
+            const formId = collection === 'evaluaciones_prestador_servicios' ? 'f1' : collection === 'seguimiento_proveedores' ? 'f2' : 'f3';
+            getSupplierNameCandidates(data, formId).forEach(supplierName => {
+              if (supplierName && typeof supplierName === 'string') suppliers.add(supplierName.trim());
+            });
           });
         } catch (error) {
           console.error(`Error loading suppliers from ${collection}:`, error);
@@ -653,6 +666,7 @@ button.danger:hover{background:#b91c1c;}
   }
 
   async function loadAnnualPerformance() {
+    if (!(await ensureFirebaseAuth())) return;
     const supplierSelect = document.getElementById('performance_supplier');
     const startInput = document.getElementById('performance_start_date');
     const endInput = document.getElementById('performance_end_date');
@@ -678,6 +692,7 @@ button.danger:hover{background:#b91c1c;}
     const allScores = [];
     let totalRecords = 0;
     const labels = [];
+    let latestDate = null;
 
     for (const formConfig of formConfigs) {
       const snapshot = await db.collection(formConfig.collection).get();
@@ -692,13 +707,14 @@ button.danger:hover{background:#b91c1c;}
         allScores.push(score);
         totalRecords += 1;
         periodValues.push({ date, score });
+        if (!latestDate || date > latestDate) latestDate = date;
       });
 
       periodValues.sort((a, b) => a.date - b.date);
       const byDate = new Map();
       periodValues.forEach(entry => {
         const dateKey = getDateKey(entry.date);
-        const displayLabel = entry.date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+        const displayLabel = entry.date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
         if (!byDate.has(dateKey)) {
           byDate.set(dateKey, { label: displayLabel, values: [] });
         }
@@ -737,8 +753,7 @@ button.danger:hover{background:#b91c1c;}
     document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
     document.getElementById('performance_total_records').textContent = String(totalRecords);
 
-    const lastDate = allRecords.length ? allRecords.reduce((latest, record) => record.date > latest ? record.date : latest, allRecords[0].date) : null;
-    document.getElementById('performance_best_month').textContent = lastDate ? lastDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+    document.getElementById('performance_best_month').textContent = latestDate ? latestDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
   }
 
   function periodDatesByRange(startDateValue, endDateValue) {
@@ -774,13 +789,11 @@ button.danger:hover{background:#b91c1c;}
 
       snapshot.forEach(doc => {
         const data = doc.data();
-        let currentSupplierName = null;
-        if (formConfig.nameField) {
-          currentSupplierName = data[formConfig.nameField];
-        } else if (formConfig.nameFields) {
-          currentSupplierName = formConfig.nameFields.map(field => data[field]).filter(name => name).join(' ');
-        }
-        if (currentSupplierName !== supplierName) return;
+        const formId = formConfig.id;
+        const selectedSupplier = normalizeSupplierName(supplierName);
+        const matchesSupplier = getSupplierNameCandidates(data, formId)
+          .some(name => normalizeSupplierName(name) === selectedSupplier);
+        if (!matchesSupplier) return;
         const date = getDateFromEntry(formConfig.id, data);
         if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
         const score = getScoreFromEntry(formConfig.id, data);
@@ -796,16 +809,19 @@ button.danger:hover{background:#b91c1c;}
 
     allRecords.sort((a, b) => a.date - b.date);
     const labels = [];
+    const displayLabels = new Map();
     const groupedByDay = new Map();
     allRecords.forEach(record => {
-      const label = record.date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-      labels.push(label);
-      const bucket = groupedByDay.get(label) || [];
+      const dateKey = getDateKey(record.date);
+      const displayLabel = record.date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+      if (!displayLabels.has(dateKey)) displayLabels.set(dateKey, displayLabel);
+      labels.push(dateKey);
+      const bucket = groupedByDay.get(dateKey) || [];
       bucket.push(record.score);
-      groupedByDay.set(label, bucket);
+      groupedByDay.set(dateKey, bucket);
     });
 
-    const uniqueLabels = [...new Set(labels)];
+    const uniqueLabels = [...new Set(labels)].sort();
     const monthlyAverages = uniqueLabels.map(label => {
       const values = groupedByDay.get(label) || [];
       return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -824,7 +840,7 @@ button.danger:hover{background:#b91c1c;}
       pointHoverRadius: 6
     }];
 
-    renderChart(uniqueLabels.length ? uniqueLabels : ['Sin datos'], datasets);
+    renderChart(uniqueLabels.length ? uniqueLabels.map(label => displayLabels.get(label)) : ['Sin datos'], datasets);
 
     document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
     document.getElementById('performance_total_records').textContent = String(totalRecords);
@@ -849,7 +865,10 @@ button.danger:hover{background:#b91c1c;}
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom' },
+          legend: {
+            position: 'bottom',
+            labels: { usePointStyle: true, boxWidth: 10, padding: 16, font: { size: 12 } }
+          },
           tooltip: {
             callbacks: {
               label: context => `${context.dataset.label}: ${context.parsed.y !== null ? context.parsed.y.toFixed(1) : 'N/A'}%`
@@ -857,6 +876,9 @@ button.danger:hover{background:#b91c1c;}
           }
         },
         scales: {
+          x: {
+            ticks: { autoSkip: true, maxRotation: 45, minRotation: 0, maxTicksLimit: 12 }
+          },
           y: {                                           
             beginAtZero: false,
             min: 0,
