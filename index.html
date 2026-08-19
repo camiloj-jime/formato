@@ -571,16 +571,52 @@ button.danger:hover{background:#b91c1c;}
   }
 
   function initializeAnnualDashboard() {
-    const yearSelect = document.getElementById('performance_year');
-    if (!yearSelect) {
-      console.warn('performance_year element not found');
-      return;
+    const startInput = document.getElementById('performance_start_date');
+    const endInput = document.getElementById('performance_end_date');
+    if (startInput && endInput) {
+      const end = new Date();
+      const start = new Date(end);
+      start.setMonth(end.getMonth() - 11);
+      start.setDate(1);
+      endInput.value = toDateInputValue(end);
+      startInput.value = toDateInputValue(start);
     }
-    const currentYear = new Date().getFullYear();
-    const values = [currentYear - 1, currentYear, currentYear + 1];
-    yearSelect.innerHTML = values.map(year => `<option value="${year}">${year}</option>`).join('');
-    yearSelect.value = String(currentYear);
     loadSuppliers();
+    loadAnnualPerformance();
+  }
+
+  function toDateInputValue(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function rangesOverlap(startA, endA, startB, endB) {
+    if (!startA || !endA || !startB || !endB) return true;
+    const aStart = new Date(startA);
+    const aEnd = new Date(endA);
+    const bStart = new Date(startB);
+    const bEnd = new Date(endB);
+    return aStart <= bEnd && bStart <= aEnd;
+  }
+
+  function matchesDateRange(date, startDateValue, endDateValue) {
+    if (!date) return false;
+    if (!startDateValue && !endDateValue) return true;
+    const start = startDateValue ? new Date(startDateValue) : null;
+    const end = endDateValue ? new Date(endDateValue) : null;
+    if (start) start.setHours(0, 0, 0, 0);
+    if (end) end.setHours(23, 59, 59, 999);
+    if (start && date < start) return false;
+    if (end && date > end) return false;
+    return true;
+  }
+
+  function getDateKey(date) {
+    if (!date) return '';
+    const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+    return localDate.toISOString().slice(0, 10);
   }
 
   async function loadSuppliers() {
@@ -617,90 +653,118 @@ button.danger:hover{background:#b91c1c;}
   }
 
   async function loadAnnualPerformance() {
-    const yearSelect = document.getElementById('performance_year');
     const supplierSelect = document.getElementById('performance_supplier');
-    if (!yearSelect) {
-      console.warn('performance_year element not found');
-      return;
-    }
-    const selectedYear = Number(yearSelect.value || new Date().getFullYear());
+    const startInput = document.getElementById('performance_start_date');
+    const endInput = document.getElementById('performance_end_date');
     const selectedSupplier = supplierSelect ? (supplierSelect.value || '') : '';
+    const selectedStart = startInput ? startInput.value : '';
+    const selectedEnd = endInput ? endInput.value : '';
 
     if (selectedSupplier) {
-      await loadSupplierHistory(selectedSupplier, selectedYear);
+      await loadSupplierHistory(selectedSupplier, selectedStart, selectedEnd);
     } else {
-      await loadAnnualOverview(selectedYear);
+      await loadAnnualOverview(selectedStart, selectedEnd);
     }
   }
 
-  async function loadAnnualOverview(selectedYear) {
+  async function loadAnnualOverview(selectedStart, selectedEnd) {
     const formConfigs = [
       { id: 'f1', label: 'Prestador', collection: 'evaluaciones_prestador_servicios', color: '#2563eb' },
       { id: 'f2', label: 'Seguimiento', collection: 'seguimiento_proveedores', color: '#10b981' },
       { id: 'f3', label: 'Compras', collection: 'evaluacion_compras', color: '#f59e0b' }
     ];
 
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const datasets = [];
     const allScores = [];
     let totalRecords = 0;
+    const labels = [];
 
     for (const formConfig of formConfigs) {
       const snapshot = await db.collection(formConfig.collection).get();
-      const monthValues = Array.from({ length: 12 }, () => []);
+      const periodValues = [];
 
       snapshot.forEach(doc => {
         const data = doc.data();
         const date = getDateFromEntry(formConfig.id, data);
-        if (!date || date.getFullYear() !== selectedYear) return;
+        if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
         const score = getScoreFromEntry(formConfig.id, data);
         if (Number.isNaN(score)) return;
-        monthValues[date.getMonth()].push(score);
         allScores.push(score);
         totalRecords += 1;
+        periodValues.push({ date, score });
       });
 
-      const monthlyAverages = monthValues.map(values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+      periodValues.sort((a, b) => a.date - b.date);
+      const byDate = new Map();
+      periodValues.forEach(entry => {
+        const dateKey = getDateKey(entry.date);
+        const displayLabel = entry.date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+        if (!byDate.has(dateKey)) {
+          byDate.set(dateKey, { label: displayLabel, values: [] });
+        }
+        byDate.get(dateKey).values.push(entry.score);
+      });
+      const orderedEntries = [...byDate.entries()].sort((a, b) => new Date(a[0]) - new Date(b[0]));
+      const orderedLabels = orderedEntries.map(([, item]) => item.label);
+      const averageData = orderedEntries.map(([, item]) => item.values.reduce((sum, value) => sum + value, 0) / item.values.length);
+
+      if (orderedLabels.length) orderedLabels.forEach(label => { if (!labels.includes(label)) labels.push(label); });
       datasets.push({
         label: formConfig.label,
-        data: monthlyAverages,
+        data: averageData,
         borderColor: formConfig.color,
         backgroundColor: formConfig.color + '22',
         borderWidth: 2.5,
         fill: false,
         tension: 0.35,
         pointRadius: 4,
-        pointHoverRadius: 5
+        pointHoverRadius: 5,
+        pointLabels: orderedLabels
       });
     }
 
-    renderChart(monthNames, datasets);
+    const uniqueLabels = [...new Set(labels)];
+    const normalizedDatasets = datasets.map(dataset => {
+      const dataMap = new Map();
+      dataset.pointLabels.forEach((label, index) => dataMap.set(label, dataset.data[index]));
+      const series = uniqueLabels.map(label => dataMap.get(label) ?? null);
+      return { ...dataset, data: series, pointLabels: uniqueLabels };
+    });
+
+    renderChart(uniqueLabels.length ? uniqueLabels : ['Sin datos'], normalizedDatasets);
 
     const avgScore = allScores.length ? allScores.reduce((sum, value) => sum + value, 0) / allScores.length : 0;
     document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
     document.getElementById('performance_total_records').textContent = String(totalRecords);
 
-    const monthAverageByIndex = monthNames.map((_, monthIndex) => {
-      const values = datasets.flatMap(dataset => dataset.data[monthIndex] !== null ? [dataset.data[monthIndex]] : []);
-      if (!values.length) return null;
-      return values.reduce((sum, value) => sum + value, 0) / values.length;
-    });
-    const bestMonthIndex = monthAverageByIndex.reduce((best, value, index, array) => {
-      if (value === null) return best;
-      if (best === null || value > array[best]) return index;
-      return best;
-    }, null);
-    document.getElementById('performance_best_month').textContent = bestMonthIndex === null ? '-' : monthNames[bestMonthIndex];
+    const lastDate = allRecords.length ? allRecords.reduce((latest, record) => record.date > latest ? record.date : latest, allRecords[0].date) : null;
+    document.getElementById('performance_best_month').textContent = lastDate ? lastDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
   }
 
-  async function loadSupplierHistory(supplierName, selectedYear) {
+  function periodDatesByRange(startDateValue, endDateValue) {
+    const allDates = [];
+    const start = startDateValue ? new Date(startDateValue) : null;
+    const end = endDateValue ? new Date(endDateValue) : null;
+    if (!start && !end) return allDates;
+    if (start && end && start > end) return allDates;
+    const cursor = new Date(start || end);
+    const finish = new Date(end || start);
+    cursor.setHours(0, 0, 0, 0);
+    finish.setHours(0, 0, 0, 0);
+    while (cursor <= finish) {
+      allDates.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return allDates;
+  }
+
+  async function loadSupplierHistory(supplierName, selectedStart, selectedEnd) {
     const formConfigs = [
       { id: 'f1', label: 'Prestador', collection: 'evaluaciones_prestador_servicios', nameField: 'f1_nombre', color: '#2563eb' },
       { id: 'f2', label: 'Seguimiento', collection: 'seguimiento_proveedores', nameFields: ['f2_nombre', 'f2_razon'], color: '#10b981' },
       { id: 'f3', label: 'Compras', collection: 'evaluacion_compras', nameField: 'f3_nombre', color: '#f59e0b' }
     ];
 
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const allRecords = [];
     let totalRecords = 0;
     let avgScore = 0;
@@ -718,12 +782,11 @@ button.danger:hover{background:#b91c1c;}
         }
         if (currentSupplierName !== supplierName) return;
         const date = getDateFromEntry(formConfig.id, data);
-        if (!date || date.getFullYear() !== selectedYear) return;
+        if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
         const score = getScoreFromEntry(formConfig.id, data);
         if (Number.isNaN(score)) return;
         allRecords.push({
           date,
-          month: date.getMonth(),
           score,
           formType: formConfig.label
         });
@@ -732,9 +795,21 @@ button.danger:hover{background:#b91c1c;}
     }
 
     allRecords.sort((a, b) => a.date - b.date);
-    const monthlyScores = Array.from({ length: 12 }, () => []);
-    allRecords.forEach(record => monthlyScores[record.month].push(record.score));
-    const monthlyAverages = monthlyScores.map(values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+    const labels = [];
+    const groupedByDay = new Map();
+    allRecords.forEach(record => {
+      const label = record.date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+      labels.push(label);
+      const bucket = groupedByDay.get(label) || [];
+      bucket.push(record.score);
+      groupedByDay.set(label, bucket);
+    });
+
+    const uniqueLabels = [...new Set(labels)];
+    const monthlyAverages = uniqueLabels.map(label => {
+      const values = groupedByDay.get(label) || [];
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    });
     avgScore = allRecords.length ? allRecords.reduce((sum, record) => sum + record.score, 0) / allRecords.length : 0;
 
     const datasets = [{
@@ -749,11 +824,11 @@ button.danger:hover{background:#b91c1c;}
       pointHoverRadius: 6
     }];
 
-    renderChart(monthNames, datasets);
+    renderChart(uniqueLabels.length ? uniqueLabels : ['Sin datos'], datasets);
 
     document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
     document.getElementById('performance_total_records').textContent = String(totalRecords);
-    document.getElementById('performance_best_month').textContent = allRecords.length ? new Date(allRecords[allRecords.length - 1].date).toLocaleDateString('es-ES') : '-';
+    document.getElementById('performance_best_month').textContent = allRecords.length ? new Date(allRecords[allRecords.length - 1].date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
   }
 
   function renderChart(monthNames, datasets) {
@@ -782,7 +857,7 @@ button.danger:hover{background:#b91c1c;}
           }
         },
         scales: {
-          y: {
+          y: {                                           
             beginAtZero: false,
             min: 0,
             max: 100,
@@ -795,67 +870,94 @@ button.danger:hover{background:#b91c1c;}
 
   // DASHBOARDS FOR INDIVIDUAL FORMS
   function initF1Dashboard() {
-    const yearSelect = document.getElementById('f1_dashboard_year');
-    if (!yearSelect) return;
-    const currentYear = new Date().getFullYear();
-    yearSelect.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(year => `<option value="${year}">${year}</option>`).join('');
-    yearSelect.value = String(currentYear);
+    const startInput = document.getElementById('f1_dashboard_start');
+    const endInput = document.getElementById('f1_dashboard_end');
+    if (startInput && endInput) {
+      const end = new Date();
+      const start = new Date(end);
+      start.setMonth(end.getMonth() - 11);
+      start.setDate(1);
+      startInput.value = toDateInputValue(start);
+      endInput.value = toDateInputValue(end);
+    }
     loadF1Dashboard();
   }
 
   async function loadF1Dashboard() {
-    const yearSelect = document.getElementById('f1_dashboard_year');
-    if (!yearSelect) return;
-    const selectedYear = Number(yearSelect.value);
-    
+    const searchInput = document.getElementById('f1_supplier_search');
+    const startInput = document.getElementById('f1_dashboard_start');
+    const endInput = document.getElementById('f1_dashboard_end');
+    const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    const selectedStart = startInput ? startInput.value : '';
+    const selectedEnd = endInput ? endInput.value : '';
+
     const snapshot = await db.collection('evaluaciones_prestador_servicios').get();
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const monthCalidad = Array(12).fill(null).map(() => []);
-    const monthOportunidad = Array(12).fill(null).map(() => []);
-    const monthAtencion = Array(12).fill(null).map(() => []);
-    const monthTotal = Array(12).fill(null).map(() => []);
-    
+    const labelMap = new Map();
+    const monthCalidad = [];
+    const monthOportunidad = [];
+    const monthAtencion = [];
+    const monthTotal = [];
+    const allCalidad = [];
+    const allOportunidad = [];
+    const allAtencion = [];
+    const allTotal = [];
+
     snapshot.forEach(doc => {
       const data = doc.data();
+      const supplierName = String(data.f1_nombre || '').trim();
+      if (searchTerm && !supplierName.toLowerCase().includes(searchTerm)) return;
       const date = getDateFromEntry('f1', data);
-      if (!date || date.getFullYear() !== selectedYear) return;
-      const month = date.getMonth();
-      
+      if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
+      const label = date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+      if (!labelMap.has(label)) {
+        labelMap.set(label, { calidad: [], oportunidad: [], atencion: [], total: [] });
+      }
+
+      const bucket = labelMap.get(label);
       const calidad = parseNumericValue(data.f1_calidad);
       const oportunidad = parseNumericValue(data.f1_oportunidad);
-      const atencion = parseNumericValue(data.f1_atencion_sugerencias);
+      const attentionValues = [data.f1_atencion_sugerencias, data.f1_atencion_responde, data.f1_atencion_cumplimiento].map(parseNumericValue).filter(value => !Number.isNaN(value));
+      const atencion = attentionValues.length ? attentionValues.reduce((sum, value) => sum + value, 0) / attentionValues.length : NaN;
       const total = parseNumericValue(data.f1_total_score);
-      
-      if (!Number.isNaN(calidad)) monthCalidad[month].push(calidad);
-      if (!Number.isNaN(oportunidad)) monthOportunidad[month].push(oportunidad);
-      if (!Number.isNaN(atencion)) monthAtencion[month].push(atencion);
-      if (!Number.isNaN(total)) monthTotal[month].push(total);
+
+      if (!Number.isNaN(calidad)) { bucket.calidad.push(calidad); allCalidad.push(calidad); }
+      if (!Number.isNaN(oportunidad)) { bucket.oportunidad.push(oportunidad); allOportunidad.push(oportunidad); }
+      if (!Number.isNaN(atencion)) { bucket.atencion.push(atencion); allAtencion.push(atencion); }
+      if (!Number.isNaN(total)) { bucket.total.push(total); allTotal.push(total); }
     });
-    
-    const avgCalidad = monthCalidad.flat();
-    const avgOportunidad = monthOportunidad.flat();
-    const avgAtencion = monthAtencion.flat();
-    const avgTotal = monthTotal.flat();
-    
-    document.getElementById('f1_dashboard_calidad').textContent = avgCalidad.length ? (avgCalidad.reduce((a,b)=>a+b)/avgCalidad.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f1_dashboard_oportunidad').textContent = avgOportunidad.length ? (avgOportunidad.reduce((a,b)=>a+b)/avgOportunidad.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f1_dashboard_atencion').textContent = avgAtencion.length ? (avgAtencion.reduce((a,b)=>a+b)/avgAtencion.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f1_dashboard_avg').textContent = avgTotal.length ? (avgTotal.reduce((a,b)=>a+b)/avgTotal.length).toFixed(1)+'%' : '0%';
-    
-    const calidadAvg = monthCalidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const oportunidadAvg = monthOportunidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const atencionAvg = monthAtencion.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    
+
+    const labels = [...labelMap.keys()].sort((a, b) => new Date(a) - new Date(b));
+    const calidadAvg = labels.map(label => {
+      const values = labelMap.get(label).calidad;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const oportunidadAvg = labels.map(label => {
+      const values = labelMap.get(label).oportunidad;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const atencionAvg = labels.map(label => {
+      const values = labelMap.get(label).atencion;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+
+    document.getElementById('f1_dashboard_calidad').textContent = allCalidad.length ? (allCalidad.reduce((a, b) => a + b, 0) / allCalidad.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f1_dashboard_oportunidad').textContent = allOportunidad.length ? (allOportunidad.reduce((a, b) => a + b, 0) / allOportunidad.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f1_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a, b) => a + b, 0) / allAtencion.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f1_dashboard_avg').textContent = allTotal.length ? (allTotal.reduce((a, b) => a + b, 0) / allTotal.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f1_dashboard_info').textContent = searchTerm
+      ? `Proveedor buscado: ${searchInput.value.trim()} | Registros: ${allTotal.length}`
+      : `Todos los proveedores | Registros: ${allTotal.length}`;
+
     const canvas = document.getElementById('f1_dashboard_chart');
     if (window.f1Chart) window.f1Chart.destroy();
     window.f1Chart = new Chart(canvas, {
       type: 'line',
       data: {
-        labels: monthNames,
+        labels: labels.length ? labels : ['Sin datos'],
         datasets: [
-          { label: 'Calidad', data: calidadAvg, borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Oportunidad', data: oportunidadAvg, borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Atención', data: atencionAvg, borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
+          { label: 'Calidad', data: calidadAvg.length ? calidadAvg : [null], borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Oportunidad', data: oportunidadAvg.length ? oportunidadAvg : [null], borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Atención', data: atencionAvg.length ? atencionAvg : [null], borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
         ]
       },
       options: {
@@ -868,62 +970,100 @@ button.danger:hover{background:#b91c1c;}
   }
 
   function initF2Dashboard() {
-    const yearSelect = document.getElementById('f2_dashboard_year');
-    if (!yearSelect) return;
-    const currentYear = new Date().getFullYear();
-    yearSelect.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(year => `<option value="${year}">${year}</option>`).join('');
-    yearSelect.value = String(currentYear);
+    const startInput = document.getElementById('f2_dashboard_start');
+    const endInput = document.getElementById('f2_dashboard_end');
+    if (startInput && endInput) {
+      const end = new Date();
+      const start = new Date(end);
+      start.setMonth(end.getMonth() - 11);
+      start.setDate(1);
+      startInput.value = toDateInputValue(start);
+      endInput.value = toDateInputValue(end);
+    }
     loadF2Dashboard();
   }
 
   async function loadF2Dashboard() {
-    const yearSelect = document.getElementById('f2_dashboard_year');
-    if (!yearSelect) return;
-    const selectedYear = Number(yearSelect.value);
-    
+    const searchInput = document.getElementById('f2_supplier_search');
+    const startInput = document.getElementById('f2_dashboard_start');
+    const endInput = document.getElementById('f2_dashboard_end');
+    const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    const selectedStart = startInput ? startInput.value : '';
+    const selectedEnd = endInput ? endInput.value : '';
+
     const snapshot = await db.collection('seguimiento_proveedores').get();
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const monthSpec = Array(12).fill(null).map(() => []);
-    const monthPuntual = Array(12).fill(null).map(() => []);
-    const monthAtencion = Array(12).fill(null).map(() => []);
-    
+    const labelMap = new Map();
+    const allSpec = [];
+    const allPuntual = [];
+    const allAtencion = [];
+    const allInterior = [];
+    const allSeguimiento = [];
+
     snapshot.forEach(doc => {
       const data = doc.data();
+      const supplierName = String(data.f2_nombre || data.f2_razon || '').trim();
+      if (searchTerm && !supplierName.toLowerCase().includes(searchTerm)) return;
       const date = getDateFromEntry('f2', data);
-      if (!date || date.getFullYear() !== selectedYear) return;
-      const month = date.getMonth();
-      
+      if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
+      const label = date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+      if (!labelMap.has(label)) labelMap.set(label, { spec: [], puntual: [], atencion: [], interior: [], seguimiento: [] });
+      const bucket = labelMap.get(label);
       const spec = parseNumericValue(data.f2_spec_score);
       const puntual = parseNumericValue(data.f2_puntual_score);
       const atencion = parseNumericValue(data.f2_atencion_score);
-      
-      if (!Number.isNaN(spec)) monthSpec[month].push(spec);
-      if (!Number.isNaN(puntual)) monthPuntual[month].push(puntual);
-      if (!Number.isNaN(atencion)) monthAtencion[month].push(atencion);
+      const interior = parseNumericValue(data.f2_eval_interior);
+      const seguimiento = parseNumericValue(data.f2_eval_seguimiento);
+
+      if (!Number.isNaN(spec)) { bucket.spec.push(spec); allSpec.push(spec); }
+      if (!Number.isNaN(puntual)) { bucket.puntual.push(puntual); allPuntual.push(puntual); }
+      if (!Number.isNaN(atencion)) { bucket.atencion.push(atencion); allAtencion.push(atencion); }
+      if (!Number.isNaN(interior)) { bucket.interior.push(interior); allInterior.push(interior); }
+      if (!Number.isNaN(seguimiento)) { bucket.seguimiento.push(seguimiento); allSeguimiento.push(seguimiento); }
     });
-    
-    const allSpec = monthSpec.flat();
-    const allPuntual = monthPuntual.flat();
-    const allAtencion = monthAtencion.flat();
-    
-    document.getElementById('f2_dashboard_spec').textContent = allSpec.length ? (allSpec.reduce((a,b)=>a+b)/allSpec.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f2_dashboard_puntual').textContent = allPuntual.length ? (allPuntual.reduce((a,b)=>a+b)/allPuntual.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f2_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a,b)=>a+b)/allAtencion.length).toFixed(1)+'%' : '0%';
-    
-    const specAvg = monthSpec.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const puntualAvg = monthPuntual.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const atencionAvg = monthAtencion.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    
+
+    const labels = [...labelMap.keys()].sort((a, b) => new Date(a) - new Date(b));
+    const specAvg = labels.map(label => {
+      const values = labelMap.get(label).spec;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const puntualAvg = labels.map(label => {
+      const values = labelMap.get(label).puntual;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const atencionAvg = labels.map(label => {
+      const values = labelMap.get(label).atencion;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const interiorAvg = labels.map(label => {
+      const values = labelMap.get(label).interior;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const seguimientoAvg = labels.map(label => {
+      const values = labelMap.get(label).seguimiento;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+
+    document.getElementById('f2_dashboard_spec').textContent = allSpec.length ? (allSpec.reduce((a, b) => a + b, 0) / allSpec.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f2_dashboard_puntual').textContent = allPuntual.length ? (allPuntual.reduce((a, b) => a + b, 0) / allPuntual.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f2_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a, b) => a + b, 0) / allAtencion.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f2_dashboard_interior').textContent = allInterior.length ? (allInterior.reduce((a, b) => a + b, 0) / allInterior.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f2_dashboard_seguimiento').textContent = allSeguimiento.length ? (allSeguimiento.reduce((a, b) => a + b, 0) / allSeguimiento.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f2_dashboard_info').textContent = searchTerm
+      ? `Proveedor buscado: ${searchInput.value.trim()} | Registros: ${Math.max(allSpec.length, allPuntual.length, allAtencion.length, allInterior.length, allSeguimiento.length)}`
+      : `Todos los proveedores | Registros: ${Math.max(allSpec.length, allPuntual.length, allAtencion.length, allInterior.length, allSeguimiento.length)}`;
+
     const canvas = document.getElementById('f2_dashboard_chart');
     if (window.f2Chart) window.f2Chart.destroy();
     window.f2Chart = new Chart(canvas, {
       type: 'line',
       data: {
-        labels: monthNames,
+        labels: labels.length ? labels : ['Sin datos'],
         datasets: [
-          { label: 'Especificaciones', data: specAvg, borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Puntualidad', data: puntualAvg, borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Atención', data: atencionAvg, borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
+          { label: 'Especificaciones', data: specAvg.length ? specAvg : [null], borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Puntualidad', data: puntualAvg.length ? puntualAvg : [null], borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Atención', data: atencionAvg.length ? atencionAvg : [null], borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Evaluación interior', data: interiorAvg.length ? interiorAvg : [null], borderColor: '#8b5cf6', backgroundColor: '#8b5cf622', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Seguimiento', data: seguimientoAvg.length ? seguimientoAvg : [null], borderColor: '#ef4444', backgroundColor: '#ef444422', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
         ]
       },
       options: {
@@ -936,69 +1076,100 @@ button.danger:hover{background:#b91c1c;}
   }
 
   function initF3Dashboard() {
-    const yearSelect = document.getElementById('f3_dashboard_year');
-    if (!yearSelect) return;
-    const currentYear = new Date().getFullYear();
-    yearSelect.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(year => `<option value="${year}">${year}</option>`).join('');
-    yearSelect.value = String(currentYear);
+    const startInput = document.getElementById('f3_dashboard_start');
+    const endInput = document.getElementById('f3_dashboard_end');
+    if (startInput && endInput) {
+      const end = new Date();
+      const start = new Date(end);
+      start.setMonth(end.getMonth() - 11);
+      start.setDate(1);
+      startInput.value = toDateInputValue(start);
+      endInput.value = toDateInputValue(end);
+    }
     loadF3Dashboard();
   }
 
   async function loadF3Dashboard() {
-    const yearSelect = document.getElementById('f3_dashboard_year');
-    if (!yearSelect) return;
-    const selectedYear = Number(yearSelect.value);
-    
+    const searchInput = document.getElementById('f3_supplier_search');
+    const startInput = document.getElementById('f3_dashboard_start');
+    const endInput = document.getElementById('f3_dashboard_end');
+    const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    const selectedStart = startInput ? startInput.value : '';
+    const selectedEnd = endInput ? endInput.value : '';
+
     const snapshot = await db.collection('evaluacion_compras').get();
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const monthCalidad = Array(12).fill(null).map(() => []);
-    const monthEntrega = Array(12).fill(null).map(() => []);
-    const monthCantidad = Array(12).fill(null).map(() => []);
-    const monthAtencion = Array(12).fill(null).map(() => []);
-    
+    const labelMap = new Map();
+    const allCalidad = [];
+    const allEntrega = [];
+    const allCantidad = [];
+    const allUnidades = [];
+    const allAtencion = [];
+
     snapshot.forEach(doc => {
       const data = doc.data();
+      const supplierName = String(data.f3_nombre || '').trim();
+      if (searchTerm && !supplierName.toLowerCase().includes(searchTerm)) return;
       const date = getDateFromEntry('f3', data);
-      if (!date || date.getFullYear() !== selectedYear) return;
-      const month = date.getMonth();
-      
+      if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
+      const label = date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+      if (!labelMap.has(label)) labelMap.set(label, { calidad: [], entrega: [], cantidad: [], unidades: [], atencion: [] });
+      const bucket = labelMap.get(label);
       const calidad = parseNumericValue(data.f3_calidad);
       const entrega = parseNumericValue(data.f3_oport_entrega);
       const cantidad = parseNumericValue(data.f3_oport_cantidad);
+      const unidades = parseNumericValue(data.f3_oport_unidades);
       const atencion = parseNumericValue(data.f3_atencion);
-      
-      if (!Number.isNaN(calidad)) monthCalidad[month].push(calidad);
-      if (!Number.isNaN(entrega)) monthEntrega[month].push(entrega);
-      if (!Number.isNaN(cantidad)) monthCantidad[month].push(cantidad);
-      if (!Number.isNaN(atencion)) monthAtencion[month].push(atencion);
+
+      if (!Number.isNaN(calidad)) { bucket.calidad.push(calidad); allCalidad.push(calidad); }
+      if (!Number.isNaN(entrega)) { bucket.entrega.push(entrega); allEntrega.push(entrega); }
+      if (!Number.isNaN(cantidad)) { bucket.cantidad.push(cantidad); allCantidad.push(cantidad); }
+      if (!Number.isNaN(unidades)) { bucket.unidades.push(unidades); allUnidades.push(unidades); }
+      if (!Number.isNaN(atencion)) { bucket.atencion.push(atencion); allAtencion.push(atencion); }
     });
-    
-    const allCalidad = monthCalidad.flat();
-    const allEntrega = monthEntrega.flat();
-    const allCantidad = monthCantidad.flat();
-    const allAtencion = monthAtencion.flat();
-    
-    document.getElementById('f3_dashboard_calidad').textContent = allCalidad.length ? (allCalidad.reduce((a,b)=>a+b)/allCalidad.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f3_dashboard_entrega').textContent = allEntrega.length ? (allEntrega.reduce((a,b)=>a+b)/allEntrega.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f3_dashboard_cantidad').textContent = allCantidad.length ? (allCantidad.reduce((a,b)=>a+b)/allCantidad.length).toFixed(1)+'%' : '0%';
-    document.getElementById('f3_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a,b)=>a+b)/allAtencion.length).toFixed(1)+'%' : '0%';
-    
-    const calidadAvg = monthCalidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const entregaAvg = monthEntrega.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const cantidadAvg = monthCantidad.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    const atencionAvg = monthAtencion.map(v => v.length ? v.reduce((a,b)=>a+b)/v.length : null);
-    
+
+    const labels = [...labelMap.keys()].sort((a, b) => new Date(a) - new Date(b));
+    const calidadAvg = labels.map(label => {
+      const values = labelMap.get(label).calidad;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const entregaAvg = labels.map(label => {
+      const values = labelMap.get(label).entrega;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const cantidadAvg = labels.map(label => {
+      const values = labelMap.get(label).cantidad;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const unidadesAvg = labels.map(label => {
+      const values = labelMap.get(label).unidades;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+    const atencionAvg = labels.map(label => {
+      const values = labelMap.get(label).atencion;
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    });
+
+    document.getElementById('f3_dashboard_calidad').textContent = allCalidad.length ? (allCalidad.reduce((a, b) => a + b, 0) / allCalidad.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f3_dashboard_entrega').textContent = allEntrega.length ? (allEntrega.reduce((a, b) => a + b, 0) / allEntrega.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f3_dashboard_cantidad').textContent = allCantidad.length ? (allCantidad.reduce((a, b) => a + b, 0) / allCantidad.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f3_dashboard_unidades').textContent = allUnidades.length ? (allUnidades.reduce((a, b) => a + b, 0) / allUnidades.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f3_dashboard_atencion').textContent = allAtencion.length ? (allAtencion.reduce((a, b) => a + b, 0) / allAtencion.length).toFixed(1) + '%' : '0%';
+    document.getElementById('f3_dashboard_info').textContent = searchTerm
+      ? `Proveedor buscado: ${searchInput.value.trim()} | Registros: ${Math.max(allCalidad.length, allEntrega.length, allCantidad.length, allUnidades.length, allAtencion.length)}`
+      : `Todos los proveedores | Registros: ${Math.max(allCalidad.length, allEntrega.length, allCantidad.length, allUnidades.length, allAtencion.length)}`;
+
     const canvas = document.getElementById('f3_dashboard_chart');
     if (window.f3Chart) window.f3Chart.destroy();
     window.f3Chart = new Chart(canvas, {
       type: 'line',
       data: {
-        labels: monthNames,
+        labels: labels.length ? labels : ['Sin datos'],
         datasets: [
-          { label: 'Calidad', data: calidadAvg, borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Entrega', data: entregaAvg, borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Cantidad', data: cantidadAvg, borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
-          { label: 'Atención', data: atencionAvg, borderColor: '#8b5cf6', backgroundColor: '#8b5cf622', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
+          { label: 'Calidad', data: calidadAvg.length ? calidadAvg : [null], borderColor: '#2563eb', backgroundColor: '#2563eb22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Entrega', data: entregaAvg.length ? entregaAvg : [null], borderColor: '#10b981', backgroundColor: '#10b98122', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Cantidad', data: cantidadAvg.length ? cantidadAvg : [null], borderColor: '#f59e0b', backgroundColor: '#f59e0b22', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Unidades', data: unidadesAvg.length ? unidadesAvg : [null], borderColor: '#14b8a6', backgroundColor: '#14b8a622', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 },
+          { label: 'Atención', data: atencionAvg.length ? atencionAvg : [null], borderColor: '#8b5cf6', backgroundColor: '#8b5cf622', borderWidth: 2.5, fill: false, tension: 0.35, pointRadius: 4 }
         ]
       },
       options: {
@@ -1216,8 +1387,11 @@ button.danger:hover{background:#b91c1c;}
     <label>Proveedor
       <select id="performance_supplier" style="min-width:200px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadAnnualPerformance()"></select>
     </label>
-    <label>Año
-      <select id="performance_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadAnnualPerformance()"></select>
+    <label>Desde
+      <input type="date" id="performance_start_date" style="min-width:150px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadAnnualPerformance()">
+    </label>
+    <label>Hasta
+      <input type="date" id="performance_end_date" style="min-width:150px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadAnnualPerformance()">
     </label>
   </div>
   <div class="stats-grid">
@@ -1244,30 +1418,40 @@ button.danger:hover{background:#b91c1c;}
 <!-- DASHBOARD F1 -->
 <div id="f1_dashboard" style="background:#f0f4ff;border-radius:20px;padding:20px;margin-bottom:24px;">
   <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO GENERAL</h5>
-  <div class="filter-row">
-    <label>Año
-      <select id="f1_dashboard_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadF1Dashboard()"></select>
-    </label>
-  </div>
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
-    <div class="stat-box">
-      <span class="stat-label">Prom. Total</span>
-      <strong id="f1_dashboard_avg">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Calidad</span>
-      <strong id="f1_dashboard_calidad">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Oportunidad</span>
-      <strong id="f1_dashboard_oportunidad">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Atención</span>
-      <strong id="f1_dashboard_atencion">0%</strong>
+  <div class="filter-row" style="flex-direction:column;gap:16px;align-items:stretch;">
+    <input type="text" id="f1_supplier_search" placeholder="Buscar nombre del proveedor..." style="width:100%;border-radius:12px;border:1px solid #cbd5e1;padding:12px;font-size:14px;" onkeyup="loadF1Dashboard()">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <label style="flex:1;min-width:150px;">Desde
+        <input type="date" id="f1_dashboard_start" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF1Dashboard()">
+      </label>
+      <label style="flex:1;min-width:150px;">Hasta
+        <input type="date" id="f1_dashboard_end" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF1Dashboard()">
+      </label>
+      <button type="button" onclick="document.getElementById('f1_supplier_search').value=''; loadF1Dashboard();" style="align-self:flex-end;flex:0 0 auto;padding:10px 16px;background:#94a3b8;color:#fff;border:none;border-radius:12px;cursor:pointer;font-weight:600;">Limpiar búsqueda</button>
     </div>
   </div>
-  <canvas id="f1_dashboard_chart" style="margin-top:16px;" height="80"></canvas>
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin:16px 0;">
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Total</span>
+      <strong id="f1_dashboard_avg" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Calidad</span>
+      <strong id="f1_dashboard_calidad" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Oportunidad</span>
+      <strong id="f1_dashboard_oportunidad" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Atención</span>
+      <strong id="f1_dashboard_atencion" style="font-size:1.2rem;">0%</strong>
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:16px;padding:12px;margin-top:12px;box-shadow:0 4px 12px rgba(15,23,42,.06);">
+    <canvas id="f1_dashboard_chart" height="50"></canvas>
+  </div>
+  <div id="f1_dashboard_info" style="margin-top:12px;padding:12px;background:#ffffff;border-radius:12px;border-left:4px solid #2563eb;font-size:13px;color:#334155;line-height:1.6;"></div>
 </div>
 
 <table>
@@ -1347,26 +1531,44 @@ button.danger:hover{background:#b91c1c;}
 <!-- DASHBOARD F2 -->
 <div id="f2_dashboard" style="background:#f0fdf4;border-radius:20px;padding:20px;margin-bottom:24px;">
   <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO DE SEGUIMIENTO</h5>
-  <div class="filter-row">
-    <label>Año
-      <select id="f2_dashboard_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadF2Dashboard()"></select>
-    </label>
-  </div>
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
-    <div class="stat-box">
-      <span class="stat-label">Prom. Especificaciones</span>
-      <strong id="f2_dashboard_spec">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Puntualidad</span>
-      <strong id="f2_dashboard_puntual">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Atención</span>
-      <strong id="f2_dashboard_atencion">0%</strong>
+  <div class="filter-row" style="flex-direction:column;gap:16px;align-items:stretch;">
+    <input type="text" id="f2_supplier_search" placeholder="Buscar nombre del proveedor..." style="width:100%;border-radius:12px;border:1px solid #cbd5e1;padding:12px;font-size:14px;" onkeyup="loadF2Dashboard()">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <label style="flex:1;min-width:150px;">Desde
+        <input type="date" id="f2_dashboard_start" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF2Dashboard()">
+      </label>
+      <label style="flex:1;min-width:150px;">Hasta
+        <input type="date" id="f2_dashboard_end" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF2Dashboard()">
+      </label>
+      <button type="button" onclick="document.getElementById('f2_supplier_search').value=''; loadF2Dashboard();" style="align-self:flex-end;flex:0 0 auto;padding:10px 16px;background:#94a3b8;color:#fff;border:none;border-radius:12px;cursor:pointer;font-weight:600;">Limpiar búsqueda</button>
     </div>
   </div>
-  <canvas id="f2_dashboard_chart" style="margin-top:16px;" height="80"></canvas>
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:16px 0;">
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Especificaciones</span>
+      <strong id="f2_dashboard_spec" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Puntualidad</span>
+      <strong id="f2_dashboard_puntual" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Atención</span>
+      <strong id="f2_dashboard_atencion" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Eval. Interior</span>
+      <strong id="f2_dashboard_interior" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Seg. Proveedor</span>
+      <strong id="f2_dashboard_seguimiento" style="font-size:1.2rem;">0%</strong>
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:16px;padding:12px;margin-top:12px;box-shadow:0 4px 12px rgba(15,23,42,.06);">
+    <canvas id="f2_dashboard_chart" height="50"></canvas>
+  </div>
+  <div id="f2_dashboard_info" style="margin-top:12px;padding:12px;background:#ffffff;border-radius:12px;border-left:4px solid #10b981;font-size:13px;color:#334155;line-height:1.6;"></div>
 </div>
 
 <table>
@@ -1456,30 +1658,44 @@ button.danger:hover{background:#b91c1c;}
 <!-- DASHBOARD F3 -->
 <div id="f3_dashboard" style="background:#fffbf0;border-radius:20px;padding:20px;margin-bottom:24px;">
   <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO DE COMPRAS</h5>
-  <div class="filter-row">
-    <label>Año
-      <select id="f3_dashboard_year" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;" onchange="loadF3Dashboard()"></select>
-    </label>
-  </div>
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));">
-    <div class="stat-box">
-      <span class="stat-label">Prom. Calidad</span>
-      <strong id="f3_dashboard_calidad">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Entrega</span>
-      <strong id="f3_dashboard_entrega">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Cantidad</span>
-      <strong id="f3_dashboard_cantidad">0%</strong>
-    </div>
-    <div class="stat-box">
-      <span class="stat-label">Prom. Atención</span>
-      <strong id="f3_dashboard_atencion">0%</strong>
+  <div class="filter-row" style="flex-direction:column;gap:16px;align-items:stretch;">
+    <input type="text" id="f3_supplier_search" placeholder="Buscar nombre del proveedor..." style="width:100%;border-radius:12px;border:1px solid #cbd5e1;padding:12px;font-size:14px;" onkeyup="loadF3Dashboard()">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <label style="flex:1;min-width:150px;">Desde
+        <input type="date" id="f3_dashboard_start" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF3Dashboard()">
+      </label>
+      <label style="flex:1;min-width:150px;">Hasta
+        <input type="date" id="f3_dashboard_end" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF3Dashboard()">
+      </label>
+      <button type="button" onclick="document.getElementById('f3_supplier_search').value=''; loadF3Dashboard();" style="align-self:flex-end;flex:0 0 auto;padding:10px 16px;background:#94a3b8;color:#fff;border:none;border-radius:12px;cursor:pointer;font-weight:600;">Limpiar búsqueda</button>
     </div>
   </div>
-  <canvas id="f3_dashboard_chart" style="margin-top:16px;" height="80"></canvas>
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:16px 0;">
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Calidad</span>
+      <strong id="f3_dashboard_calidad" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Entrega</span>
+      <strong id="f3_dashboard_entrega" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Cantidad</span>
+      <strong id="f3_dashboard_cantidad" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Unidades</span>
+      <strong id="f3_dashboard_unidades" style="font-size:1.2rem;">0%</strong>
+    </div>
+    <div class="stat-box" style="padding:12px;">
+      <span class="stat-label" style="font-size:0.65rem;">Prom. Atención</span>
+      <strong id="f3_dashboard_atencion" style="font-size:1.2rem;">0%</strong>
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:16px;padding:12px;margin-top:12px;box-shadow:0 4px 12px rgba(15,23,42,.06);">
+    <canvas id="f3_dashboard_chart" height="50"></canvas>
+  </div>
+  <div id="f3_dashboard_info" style="margin-top:12px;padding:12px;background:#ffffff;border-radius:12px;border-left:4px solid #f59e0b;font-size:13px;color:#334155;line-height:1.6;"></div>
 </div>
 
 <table>
@@ -1942,3 +2158,4 @@ window.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
+
