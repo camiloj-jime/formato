@@ -620,7 +620,12 @@ button.danger:hover{background:#b91c1c;}
   }
 
   function normalizeSupplierName(value) {
-    return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLocaleLowerCase('es');
   }
 
   function getSupplierNameCandidates(data, formId) {
@@ -780,8 +785,8 @@ button.danger:hover{background:#b91c1c;}
       { id: 'f3', label: 'Compras', collection: 'evaluacion_compras', nameField: 'f3_nombre', color: '#f59e0b' }
     ];
 
+    const matchedRecords = [];
     const allRecords = [];
-    let totalRecords = 0;
     let avgScore = 0;
 
     for (const formConfig of formConfigs) {
@@ -795,16 +800,28 @@ button.danger:hover{background:#b91c1c;}
           .some(name => normalizeSupplierName(name) === selectedSupplier);
         if (!matchesSupplier) return;
         const date = getDateFromEntry(formConfig.id, data);
-        if (!matchesDateRange(date, selectedStart, selectedEnd)) return;
         const score = getScoreFromEntry(formConfig.id, data);
         if (Number.isNaN(score)) return;
-        allRecords.push({
+        matchedRecords.push({
           date,
           score,
           formType: formConfig.label
         });
-        totalRecords += 1;
       });
+    }
+
+    const recordsInRange = matchedRecords.filter(record => matchesDateRange(record.date, selectedStart, selectedEnd));
+    const usingAllSupplierRecords = matchedRecords.length > 0 && recordsInRange.length === 0;
+    allRecords.push(...(usingAllSupplierRecords ? matchedRecords : recordsInRange));
+
+    if (usingAllSupplierRecords) {
+      const supplierDates = matchedRecords.map(record => record.date).sort((a, b) => a - b);
+      const startInput = document.getElementById('performance_start_date');
+      const endInput = document.getElementById('performance_end_date');
+      if (startInput && endInput) {
+        startInput.value = toDateInputValue(supplierDates[0]);
+        endInput.value = toDateInputValue(supplierDates[supplierDates.length - 1]);
+      }
     }
 
     allRecords.sort((a, b) => a.date - b.date);
@@ -843,7 +860,7 @@ button.danger:hover{background:#b91c1c;}
     renderChart(uniqueLabels.length ? uniqueLabels.map(label => displayLabels.get(label)) : ['Sin datos'], datasets);
 
     document.getElementById('performance_avg_score').textContent = `${avgScore.toFixed(1)}%`;
-    document.getElementById('performance_total_records').textContent = String(totalRecords);
+    document.getElementById('performance_total_records').textContent = String(allRecords.length);
     document.getElementById('performance_best_month').textContent = allRecords.length ? new Date(allRecords[allRecords.length - 1].date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
   }
 
@@ -2180,4 +2197,5 @@ window.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
+
 
