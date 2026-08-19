@@ -41,6 +41,7 @@ input[type='radio']{width:auto;margin:0;display:inline-block;cursor:pointer;acce
 .line{border-bottom:1px solid #cbd5e1;min-height:30px;}
 button{margin:6px 5px;padding:13px 24px;background:#e48585;color:#ffffff;border:none;border-radius:16px;cursor:pointer;font-weight:700;transition:background .25s ease,transform .2s ease,box-shadow .2s ease;}
 button:hover{background:#c5898c;transform:translateY(-1px);box-shadow:0 14px 30px rgba(37,99,235,.18);}
+button:disabled{opacity:.6;cursor:wait;transform:none;box-shadow:none;}
 button.secondary{background:#f8fafc;color:#0f172a;}
 button.secondary:hover{background:#e2e8f0;}
 button.danger{background:#dc2626;color:#ffffff;}
@@ -68,6 +69,20 @@ button.danger:hover{background:#b91c1c;}
 .formato table td{border-color:#e2e8f0;}
 .line input{background:transparent;border:none;padding:0 8px;}
 .diag-btn{position:fixed;right:18px;bottom:18px;padding:10px 14px;background:#2563eb;color:#fff;border:none;border-radius:12px;cursor:pointer;box-shadow:0 8px 20px rgba(37,99,235,.18);z-index:9999}
+.provider-setup{background:#f8fafc;border:1px solid #dbe4f0;border-radius:20px;padding:22px;margin-bottom:24px;}
+.provider-setup h5{margin:0 0 8px;color:#0f172a;font-size:1.05rem;}
+.provider-setup p{margin:0 0 18px;color:#475569;line-height:1.5;}
+.provider-basic-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end;}
+.provider-basic-grid label{display:grid;gap:7px;font-weight:700;color:#334155;font-size:.86rem;}
+.provider-basic-grid button{margin:0;min-height:48px;}
+.provider-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:18px;}
+.provider-card{display:block;width:100%;margin:0;padding:15px 16px;text-align:left;background:#ffffff;color:#0f172a;border:1px solid #dbe4f0;border-radius:14px;box-shadow:0 8px 18px rgba(15,23,42,.05);}
+.provider-card:hover{background:#eff6ff;color:#1e3a8a;}
+.provider-card strong,.provider-card small{display:block;}
+.provider-card small{margin-top:5px;color:#64748b;font-weight:500;}
+@media (max-width:880px){
+  .provider-basic-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
 @media (max-width:880px){
   .company-header{grid-template-columns:1fr;}
 }
@@ -188,10 +203,16 @@ button.danger:hover{background:#b91c1c;}
       return { ok: false, error: msg };
     }
     try {
-      formData.savedAt = firebase.firestore.FieldValue.serverTimestamp();
-      console.log('Saving to Firebase:', collectionName, formData);
-      const ref = await db.collection(collectionName).add(formData);
+      const dataToSave = {
+        ...formData,
+        savedAtLocal: formData.savedAtLocal || new Date().toISOString(),
+        savedByUid: currentUser.uid,
+        savedAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+      console.log('Saving to Firebase:', collectionName, dataToSave);
+      const ref = await db.collection(collectionName).add(dataToSave);
       console.log('Document saved with ID:', ref.id);
+      updateFirebaseStatus('Guardado correctamente en Firebase.');
       if (typeof loadAnnualPerformance === 'function') {
         loadAnnualPerformance();
       }
@@ -633,6 +654,196 @@ button.danger:hover{background:#b91c1c;}
     if (formId === 'f2') return [data.f2_nombre, data.f2_razon];
     if (formId === 'f3') return [data.f3_nombre];
     return [];
+  }
+
+  function escapeHtml(value) {
+    return String(value || '').replace(/[&<>'"]/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    }[character]));
+  }
+
+  function showF1Evaluation(provider) {
+    const basicFields = {
+      f1_nombre: provider.f1_nombre || provider.nombre || '',
+      f1_ubicacion: provider.f1_ubicacion || provider.ubicacion || '',
+      f1_fecha: provider.f1_fecha || provider.fecha || '',
+      f1_tel: provider.f1_tel || provider.telefono || ''
+    };
+    Object.entries(basicFields).forEach(([id, value]) => {
+      const field = document.getElementById(id);
+      if (field) field.value = value;
+    });
+    document.getElementById('f1_basic_form_table')?.classList.remove('hidden');
+    document.getElementById('f1_evaluation_details')?.classList.remove('hidden');
+    document.getElementById('f1_dashboard')?.classList.remove('hidden');
+    document.getElementById('f1_selected_provider').textContent = `Proveedor seleccionado: ${basicFields.f1_nombre}`;
+    loadF1Dashboard();
+  }
+
+  async function loadProviderDirectory() {
+    const list = document.getElementById('f1_provider_list');
+    if (!list || !(await ensureFirebaseAuth())) return;
+    const providers = new Map();
+    try {
+      const registered = await db.collection('proveedores_prestadores').get();
+      registered.forEach(doc => {
+        const data = doc.data();
+        const key = normalizeSupplierName(data.f1_nombre || data.nombre);
+        if (key) providers.set(key, { id: doc.id, ...data });
+      });
+
+      const evaluations = await db.collection('evaluaciones_prestador_servicios').get();
+      evaluations.forEach(doc => {
+        const data = doc.data();
+        const key = normalizeSupplierName(data.f1_nombre);
+        if (key && !providers.has(key)) providers.set(key, { id: `evaluation-${doc.id}`, ...data });
+      });
+
+      const entries = [...providers.values()]
+        .filter(provider => provider.f1_nombre || provider.nombre)
+        .sort((a, b) => normalizeSupplierName(a.f1_nombre || a.nombre).localeCompare(normalizeSupplierName(b.f1_nombre || b.nombre), 'es'));
+      list.innerHTML = entries.length ? entries.map(provider => {
+        const name = provider.f1_nombre || provider.nombre;
+        const location = provider.f1_ubicacion || provider.ubicacion || 'Sin ubicación';
+        const telephone = provider.f1_tel || provider.telefono || '';
+        const payload = JSON.stringify(provider).replace(/'/g, '&#39;');
+        return `<button type="button" class="provider-card" onclick='showF1Evaluation(${payload})'><strong>${escapeHtml(name)}</strong><small>${escapeHtml(location)}${telephone ? ` · ${escapeHtml(telephone)}` : ''}</small></button>`;
+      }).join('') : '<p style="margin:16px 0 0;color:#64748b;">Aún no hay proveedores agregados.</p>';
+    } catch (error) {
+      console.error('Error cargando proveedores:', error);
+      list.innerHTML = '<p style="margin:16px 0 0;color:#dc2626;">No se pudieron cargar los proveedores.</p>';
+    }
+  }
+
+  async function addProviderF1() {
+    const fields = {
+      f1_nombre: document.getElementById('f1_provider_nombre').value.trim(),
+      f1_ubicacion: document.getElementById('f1_provider_ubicacion').value.trim(),
+      f1_fecha: document.getElementById('f1_provider_fecha').value,
+      f1_tel: document.getElementById('f1_provider_tel').value.trim(),
+      formId: 'provider_f1',
+      savedAtLocal: new Date().toISOString()
+    };
+    if (!fields.f1_nombre || !fields.f1_ubicacion || !fields.f1_fecha || !fields.f1_tel) {
+      alert('Completa nombre, ubicación, fecha y teléfono del proveedor.');
+      return;
+    }
+    const status = document.getElementById('f1_provider_status');
+    status.textContent = 'Guardando proveedor...';
+    const result = await saveFormToFirebase('proveedores_prestadores', fields);
+    if (!result || !result.ok) {
+      status.textContent = 'No se pudo agregar el proveedor.';
+      return;
+    }
+    status.textContent = 'Proveedor agregado correctamente.';
+    ['f1_provider_nombre', 'f1_provider_ubicacion', 'f1_provider_fecha', 'f1_provider_tel'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    await loadProviderDirectory();
+    showF1Evaluation(fields);
+  }
+
+  function showF2Evaluation(provider) {
+    ['f2_razon', 'f2_nit', 'f2_nombre', 'f2_fecha', 'f2_ubicacion', 'f2_tel'].forEach(id => {
+      const field = document.getElementById(id);
+      if (field) field.value = provider[id] || '';
+    });
+    document.getElementById('f2_basic_form_table')?.classList.remove('hidden');
+    document.getElementById('f2_evaluation_details')?.classList.remove('hidden');
+    document.getElementById('f2_dashboard')?.classList.remove('hidden');
+    document.getElementById('f2_supplier_search').value = provider.f2_nombre || provider.f2_razon || '';
+    document.getElementById('f2_selected_provider').textContent = `Proveedor seleccionado: ${provider.f2_nombre || provider.f2_razon}`;
+    loadF2Dashboard();
+  }
+
+  function showF3Evaluation(provider) {
+    ['f3_nombre', 'f3_ubicacion', 'f3_fecha', 'f3_tel'].forEach(id => {
+      const field = document.getElementById(id);
+      if (field) field.value = provider[id] || '';
+    });
+    document.getElementById('f3_basic_form_table')?.classList.remove('hidden');
+    document.getElementById('f3_evaluation_details')?.classList.remove('hidden');
+    document.getElementById('f3_dashboard')?.classList.remove('hidden');
+    document.getElementById('f3_supplier_search').value = provider.f3_nombre || '';
+    document.getElementById('f3_selected_provider').textContent = `Proveedor seleccionado: ${provider.f3_nombre || ''}`;
+    loadF3Dashboard();
+  }
+
+  async function loadProviderDirectoryFor(formId) {
+    const list = document.getElementById(`${formId}_provider_list`);
+    if (!list || !(await ensureFirebaseAuth())) return;
+    const collectionName = formId === 'f2' ? 'proveedores_seguimiento' : 'proveedores_compras';
+    const evaluationCollection = getCollectionName(formId);
+    const providers = new Map();
+    try {
+      const registered = await db.collection(collectionName).get();
+      registered.forEach(doc => {
+        const data = doc.data();
+        const key = normalizeSupplierName(data[`${formId}_nombre`] || data[`${formId}_razon`]);
+        if (key) providers.set(key, { id: doc.id, ...data });
+      });
+      const evaluations = await db.collection(evaluationCollection).get();
+      evaluations.forEach(doc => {
+        const data = doc.data();
+        const key = normalizeSupplierName(data[`${formId}_nombre`] || data[`${formId}_razon`]);
+        if (key && !providers.has(key)) providers.set(key, { id: `evaluation-${doc.id}`, ...data });
+      });
+      const entries = [...providers.values()].sort((a, b) => {
+        const nameA = a[`${formId}_nombre`] || a[`${formId}_razon`] || '';
+        const nameB = b[`${formId}_nombre`] || b[`${formId}_razon`] || '';
+        return normalizeSupplierName(nameA).localeCompare(normalizeSupplierName(nameB), 'es');
+      });
+      list.innerHTML = entries.length ? entries.map(provider => {
+        const name = provider[`${formId}_nombre`] || provider[`${formId}_razon`] || 'Proveedor';
+        const location = provider[`${formId}_ubicacion`] || 'Sin ubicación';
+        const telephone = provider[`${formId}_tel`] || '';
+        const payload = JSON.stringify(provider).replace(/'/g, '&#39;');
+        const handler = formId === 'f2' ? 'showF2Evaluation' : 'showF3Evaluation';
+        return `<button type="button" class="provider-card" onclick='${handler}(${payload})'><strong>${escapeHtml(name)}</strong><small>${escapeHtml(location)}${telephone ? ` · ${escapeHtml(telephone)}` : ''}</small></button>`;
+      }).join('') : '<p style="margin:16px 0 0;color:#64748b;">Aún no hay proveedores agregados.</p>';
+    } catch (error) {
+      console.error(`Error cargando proveedores de ${formId}:`, error);
+      list.innerHTML = '<p style="margin:16px 0 0;color:#dc2626;">No se pudieron cargar los proveedores.</p>';
+    }
+  }
+
+  async function addProviderF2() {
+    const fields = {};
+    ['f2_razon', 'f2_nit', 'f2_nombre', 'f2_fecha', 'f2_ubicacion', 'f2_tel'].forEach(id => {
+      const providerId = id.replace('f2_', 'f2_provider_');
+      fields[id] = document.getElementById(providerId).value.trim();
+    });
+    if (!fields.f2_razon || !fields.f2_nit || !fields.f2_nombre || !fields.f2_fecha || !fields.f2_ubicacion || !fields.f2_tel) {
+      alert('Completa razón social, NIT, nombre, ubicación, fecha y teléfono.');
+      return;
+    }
+    const status = document.getElementById('f2_provider_status');
+    status.textContent = 'Guardando proveedor...';
+    const result = await saveFormToFirebase('proveedores_seguimiento', { ...fields, formId: 'provider_f2', savedAtLocal: new Date().toISOString() });
+    if (!result || !result.ok) { status.textContent = 'No se pudo agregar el proveedor.'; return; }
+    status.textContent = 'Proveedor agregado correctamente.';
+    ['f2_razon', 'f2_nit', 'f2_nombre', 'f2_fecha', 'f2_ubicacion', 'f2_tel'].forEach(id => { document.getElementById(id.replace('f2_', 'f2_provider_')).value = ''; });
+    await loadProviderDirectoryFor('f2');
+    showF2Evaluation(fields);
+  }
+
+  async function addProviderF3() {
+    const fields = {};
+    ['f3_nombre', 'f3_ubicacion', 'f3_fecha', 'f3_tel'].forEach(id => {
+      fields[id] = document.getElementById(id.replace('f3_', 'f3_provider_')).value.trim();
+    });
+    if (!fields.f3_nombre || !fields.f3_ubicacion || !fields.f3_fecha || !fields.f3_tel) {
+      alert('Completa nombre, ubicación, fecha y teléfono.');
+      return;
+    }
+    const status = document.getElementById('f3_provider_status');
+    status.textContent = 'Guardando proveedor...';
+    const result = await saveFormToFirebase('proveedores_compras', { ...fields, formId: 'provider_f3', savedAtLocal: new Date().toISOString() });
+    if (!result || !result.ok) { status.textContent = 'No se pudo agregar el proveedor.'; return; }
+    status.textContent = 'Proveedor agregado correctamente.';
+    ['f3_nombre', 'f3_ubicacion', 'f3_fecha', 'f3_tel'].forEach(id => { document.getElementById(id.replace('f3_', 'f3_provider_')).value = ''; });
+    await loadProviderDirectoryFor('f3');
+    showF3Evaluation(fields);
   }
 
   async function loadSuppliers() {
@@ -1242,6 +1453,11 @@ button.danger:hover{background:#b91c1c;}
   async function loadSavedEntries(formId) {
     const collectionName = getCollectionName(formId);
     if (!collectionName) return;
+    if (!(await ensureFirebaseAuth())) {
+      const container = document.getElementById(`${formId}_saved_list`);
+      if (container) container.innerHTML = '<p>No se pudo conectar con Firebase.</p>';
+      return;
+    }
     try {
       let query = db.collection(collectionName).orderBy('savedAt', 'desc');
       const startDate = document.getElementById(`${formId}_start_date`);
@@ -1454,11 +1670,35 @@ button.danger:hover{background:#b91c1c;}
 <div id="f1" class="formato hidden">
 <h4 class="center">FORMATO DE EVALUACIÓN PARA PRESTADOR DE SERVICIOS</h4>
 
+<div class="provider-setup">
+  <h5>Agregar proveedor</h5>
+  <p>Registra primero los datos básicos. Después selecciona el proveedor para completar su evaluación.</p>
+  <div class="provider-basic-grid">
+    <label>Nombre
+      <input id="f1_provider_nombre" placeholder="Nombre del proveedor">
+    </label>
+    <label>Ubicación
+      <input id="f1_provider_ubicacion" placeholder="Ubicación">
+    </label>
+    <label>Fecha
+      <input id="f1_provider_fecha" type="date">
+    </label>
+    <label>Teléfono
+      <input id="f1_provider_tel" placeholder="Teléfono">
+    </label>
+    <button type="button" onclick="addProviderF1()">Agregar proveedor</button>
+  </div>
+  <div id="f1_provider_status" style="margin-top:12px;color:#2563eb;font-weight:700;"></div>
+  <div id="f1_provider_list" class="provider-list"></div>
+</div>
+
+<div id="f1_selected_provider" style="margin:0 0 16px;padding:12px 16px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:10px;color:#1e3a8a;font-weight:700;">Selecciona un proveedor para abrir la evaluación.</div>
+
 <!-- DASHBOARD F1 -->
-<div id="f1_dashboard" style="background:#f0f4ff;border-radius:20px;padding:20px;margin-bottom:24px;">
+<div id="f1_dashboard" class="hidden" style="background:#f0f4ff;border-radius:20px;padding:20px;margin-bottom:24px;">
   <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO GENERAL</h5>
   <div class="filter-row" style="flex-direction:column;gap:16px;align-items:stretch;">
-    <input type="text" id="f1_supplier_search" placeholder="Buscar nombre del proveedor..." style="width:100%;border-radius:12px;border:1px solid #cbd5e1;padding:12px;font-size:14px;" onkeyup="loadF1Dashboard()">
+    <input type="hidden" id="f1_supplier_search">
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
       <label style="flex:1;min-width:150px;">Desde
         <input type="date" id="f1_dashboard_start" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF1Dashboard()">
@@ -1493,11 +1733,12 @@ button.danger:hover{background:#b91c1c;}
   <div id="f1_dashboard_info" style="margin-top:12px;padding:12px;background:#ffffff;border-radius:12px;border-left:4px solid #2563eb;font-size:13px;color:#334155;line-height:1.6;"></div>
 </div>
 
-<table>
+<table id="f1_basic_form_table" class="hidden">
 <tr><td>Nombre:</td><td class="line"><input id="f1_nombre" placeholder="Proveedor"></td><td>Fecha:</td><td class="line"><input id="f1_fecha" type="date"></td></tr>
 <tr><td>Ubicación:</td><td class="line"><input id="f1_ubicacion" placeholder="Ubicación"></td><td>Tel:</td><td class="line"><input id="f1_tel" placeholder="Teléfono"></td></tr>
 </table>
 
+<div id="f1_evaluation_details" class="hidden">
 <br>
 
 <table>
@@ -1562,16 +1803,35 @@ button.danger:hover{background:#b91c1c;}
   <div id="f1_saved_list"></div>
 </div>
 </div>
+  </div>
 
 <!-- FORMATO 2 -->
 <div id="f2" class="formato hidden">
 <h4 class="center">FORMATO DE SEGUIMIENTO A PROVEEDORES</h4>
 
+<div class="provider-setup">
+  <h5>Agregar proveedor</h5>
+  <p>Registra los datos básicos y luego selecciona el proveedor para completar el seguimiento.</p>
+  <div class="provider-basic-grid">
+    <label>Razón social<input id="f2_provider_razon" placeholder="Razón social"></label>
+    <label>NIT<input id="f2_provider_nit" placeholder="NIT"></label>
+    <label>Nombre<input id="f2_provider_nombre" placeholder="Nombre del proveedor"></label>
+    <label>Fecha<input id="f2_provider_fecha" type="date"></label>
+    <label>Ubicación<input id="f2_provider_ubicacion" placeholder="Ubicación"></label>
+    <label>Teléfono<input id="f2_provider_tel" placeholder="Teléfono"></label>
+    <button type="button" onclick="addProviderF2()">Agregar proveedor</button>
+  </div>
+  <div id="f2_provider_status" style="margin-top:12px;color:#2563eb;font-weight:700;"></div>
+  <div id="f2_provider_list" class="provider-list"></div>
+</div>
+
+<div id="f2_selected_provider" style="margin:0 0 16px;padding:12px 16px;background:#ecfdf5;border-left:4px solid #10b981;border-radius:10px;color:#047857;font-weight:700;">Selecciona un proveedor para abrir el seguimiento.</div>
+
 <!-- DASHBOARD F2 -->
-<div id="f2_dashboard" style="background:#f0fdf4;border-radius:20px;padding:20px;margin-bottom:24px;">
+<div id="f2_dashboard" class="hidden" style="background:#f0fdf4;border-radius:20px;padding:20px;margin-bottom:24px;">
   <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO DE SEGUIMIENTO</h5>
   <div class="filter-row" style="flex-direction:column;gap:16px;align-items:stretch;">
-    <input type="text" id="f2_supplier_search" placeholder="Buscar nombre del proveedor..." style="width:100%;border-radius:12px;border:1px solid #cbd5e1;padding:12px;font-size:14px;" onkeyup="loadF2Dashboard()">
+    <input type="hidden" id="f2_supplier_search">
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
       <label style="flex:1;min-width:150px;">Desde
         <input type="date" id="f2_dashboard_start" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF2Dashboard()">
@@ -1610,12 +1870,13 @@ button.danger:hover{background:#b91c1c;}
   <div id="f2_dashboard_info" style="margin-top:12px;padding:12px;background:#ffffff;border-radius:12px;border-left:4px solid #10b981;font-size:13px;color:#334155;line-height:1.6;"></div>
 </div>
 
-<table>
+<table id="f2_basic_form_table" class="hidden">
 <tr><td>Razón social:</td><td class="line"><input id="f2_razon" placeholder="Razón social"></td><td>NIT:</td><td class="line"><input id="f2_nit" placeholder="NIT"></td></tr>
 <tr><td>Nombre:</td><td class="line"><input id="f2_nombre" placeholder="Nombre"></td><td>Fecha:</td><td class="line"><input id="f2_fecha" type="date"></td></tr>
 <tr><td>Ubicación:</td><td class="line"><input id="f2_ubicacion" placeholder="Ubicación"></td><td>Teléfono:</td><td class="line"><input id="f2_tel" placeholder="Teléfono"></td></tr>
 </table>
 
+<div id="f2_evaluation_details" class="hidden">
 <br>
 
 <table>
@@ -1689,16 +1950,33 @@ button.danger:hover{background:#b91c1c;}
   <div id="f2_saved_list"></div>
 </div>
 </div>
+</div>
 
 <!-- FORMATO 3 -->
 <div id="f3" class="formato hidden">
 <h4 class="center">EVALUACIÓN DE PROVEEDORES POR COMPRAS</h4>
 
+<div class="provider-setup">
+  <h5>Agregar proveedor</h5>
+  <p>Registra los datos básicos y luego selecciona el proveedor para completar la evaluación de compras.</p>
+  <div class="provider-basic-grid">
+    <label>Nombre<input id="f3_provider_nombre" placeholder="Nombre del proveedor"></label>
+    <label>Ubicación<input id="f3_provider_ubicacion" placeholder="Ubicación"></label>
+    <label>Fecha<input id="f3_provider_fecha" type="date"></label>
+    <label>Teléfono<input id="f3_provider_tel" placeholder="Teléfono"></label>
+    <button type="button" onclick="addProviderF3()">Agregar proveedor</button>
+  </div>
+  <div id="f3_provider_status" style="margin-top:12px;color:#2563eb;font-weight:700;"></div>
+  <div id="f3_provider_list" class="provider-list"></div>
+</div>
+
+<div id="f3_selected_provider" style="margin:0 0 16px;padding:12px 16px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:10px;color:#b45309;font-weight:700;">Selecciona un proveedor para abrir la evaluación.</div>
+
 <!-- DASHBOARD F3 -->
-<div id="f3_dashboard" style="background:#fffbf0;border-radius:20px;padding:20px;margin-bottom:24px;">
+<div id="f3_dashboard" class="hidden" style="background:#fffbf0;border-radius:20px;padding:20px;margin-bottom:24px;">
   <h5 style="margin:0 0 16px;color:#0f172a;text-align:center;">DESEMPEÑO DE COMPRAS</h5>
   <div class="filter-row" style="flex-direction:column;gap:16px;align-items:stretch;">
-    <input type="text" id="f3_supplier_search" placeholder="Buscar nombre del proveedor..." style="width:100%;border-radius:12px;border:1px solid #cbd5e1;padding:12px;font-size:14px;" onkeyup="loadF3Dashboard()">
+    <input type="hidden" id="f3_supplier_search">
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
       <label style="flex:1;min-width:150px;">Desde
         <input type="date" id="f3_dashboard_start" style="min-width:140px;border-radius:12px;border:1px solid #cbd5e1;padding:10px 12px;background:#fff;width:100%;" onchange="loadF3Dashboard()">
@@ -1737,11 +2015,12 @@ button.danger:hover{background:#b91c1c;}
   <div id="f3_dashboard_info" style="margin-top:12px;padding:12px;background:#ffffff;border-radius:12px;border-left:4px solid #f59e0b;font-size:13px;color:#334155;line-height:1.6;"></div>
 </div>
 
-<table>
+<table id="f3_basic_form_table" class="hidden">
 <tr><td>Nombre:</td><td class="line"><input id="f3_nombre" placeholder="Nombre del proveedor"></td><td>Ubicación:</td><td class="line"><input id="f3_ubicacion" placeholder="Ubicación"></td></tr>
 <tr><td>Fecha:</td><td class="line"><input id="f3_fecha" type="date"></td><td>Tel:</td><td class="line"><input id="f3_tel" placeholder="Teléfono"></td></tr>
 </table>
 
+<div id="f3_evaluation_details" class="hidden">
 <br>
 
 <table>
@@ -1831,6 +2110,7 @@ button.danger:hover{background:#b91c1c;}
     <button type="button" class="danger" onclick="deleteAllSavedEntries('f3')">Eliminar todos</button>
   </div>
   <div id="f3_saved_list"></div>
+</div>
 </div>
 </div>
 
@@ -1938,6 +2218,12 @@ function saveFormLocalStorage(formId){
  localStorage.setItem(`formState_${formId}`, JSON.stringify(state));
 }
 
+function setFormSaving(formId, isSaving){
+ const status = document.getElementById(`${formId}_save_status`);
+ const row = status ? status.closest('.button-row') : null;
+ if (row) row.querySelectorAll('button').forEach(button => { button.disabled = isSaving; });
+}
+
 async function saveFormF1(){
  if (!document.getElementById('f1_nombre').value.trim()) {
    alert('Por favor completa el nombre del proveedor');
@@ -1948,6 +2234,7 @@ async function saveFormF1(){
  saveFormLocalStorage('f1');
  const status=document.getElementById('f1_save_status');
  status.innerText='Guardando en Firebase...';
+ setFormSaving('f1', true);
  console.log('saveFormF1: calling saveFormToFirebase with data:', formData);
  const result = await saveFormToFirebase('evaluaciones_prestador_servicios', formData);
  console.log('saveFormF1: result=', result);
@@ -1955,13 +2242,14 @@ async function saveFormF1(){
    status.innerText = 'Guardado en Firebase ✓';
    formData.savedAtLocal = new Date().toISOString();
    openPrintableRecord('f1', formData);
-   resetF1();
+  resetF1(true);
    loadSavedEntries('f1');
  } else {
    const msg = result && result.error ? result.error : 'Error al guardar en Firebase';
    status.innerText = 'Error: ' + msg;
    console.error('saveFormF1 error:', msg);
  }
+ setFormSaving('f1', false);
  setTimeout(()=>{status.innerText='';}, 4000);
 }
 
@@ -1974,18 +2262,20 @@ async function saveFormF2(){
  saveFormLocalStorage('f2');
  const status=document.getElementById('f2_save_status');
  status.innerText='Guardando en Firebase...';
+ setFormSaving('f2', true);
  const result = await saveFormToFirebase('seguimiento_proveedores', formData);
  if (result && result.ok) {
    status.innerText = 'Guardado en Firebase ✓';
    formData.savedAtLocal = new Date().toISOString();
    openPrintableRecord('f2', formData);
-   resetF2();
+  resetF2(true);
    loadSavedEntries('f2');
  } else {
    const msg = result && result.error ? result.error : 'Error al guardar en Firebase';
    status.innerText = 'Error: ' + msg;
    console.error('saveFormF2 error:', msg);
  }
+ setFormSaving('f2', false);
  setTimeout(()=>{status.innerText='';}, 4000);
 }
 
@@ -1998,18 +2288,20 @@ async function saveFormF3(){
  saveFormLocalStorage('f3');
  const status=document.getElementById('f3_save_status');
  status.innerText='Guardando en Firebase...';
+ setFormSaving('f3', true);
  const result = await saveFormToFirebase('evaluacion_compras', formData);
  if (result && result.ok) {
    status.innerText = 'Guardado en Firebase ✓';
    formData.savedAtLocal = new Date().toISOString();
    openPrintableRecord('f3', formData);
-   resetF3();
+  resetF3(true);
    loadSavedEntries('f3');
  } else {
    const msg = result && result.error ? result.error : 'Error al guardar en Firebase';
    status.innerText = 'Error: ' + msg;
    console.error('saveFormF3 error:', msg);
  }
+ setFormSaving('f3', false);
  setTimeout(()=>{status.innerText='';}, 4000);
 }
 
@@ -2064,8 +2356,9 @@ function loadFormLocalStorage(){
  });
 }
 
-function resetF1(){
- ['f1_nombre','f1_fecha','f1_ubicacion','f1_tel','f1_obs'].forEach(id=>document.getElementById(id).value='');
+function resetF1(preserveProvider=false){
+ if (!preserveProvider) ['f1_nombre','f1_fecha','f1_ubicacion','f1_tel'].forEach(id=>document.getElementById(id).value='');
+ document.getElementById('f1_obs').value='';
  ['f1_calidad','f1_oportunidad','f1_atencion_sugerencias','f1_atencion_responde','f1_atencion_cumplimiento'].forEach(name=>{
    document.querySelectorAll(`input[name="${name}"]`).forEach(r=>{r.checked=false;r.wasChecked=false;});
  });
@@ -2074,8 +2367,9 @@ function resetF1(){
  saveFormLocalStorage('f1');
 }
 
-function resetF2(){
- ['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel','f2_eval_interior','f2_eval_seguimiento','f2_spec_score','f2_puntual_score','f2_atencion_score'].forEach(id=>document.getElementById(id).value='');
+function resetF2(preserveProvider=false){
+ if (!preserveProvider) ['f2_razon','f2_nit','f2_nombre','f2_fecha','f2_ubicacion','f2_tel'].forEach(id=>document.getElementById(id).value='');
+ ['f2_eval_interior','f2_eval_seguimiento','f2_spec_score','f2_puntual_score','f2_atencion_score'].forEach(id=>document.getElementById(id).value='');
  ['f2_spec','f2_puntual','f2_atencion','f2_reval'].forEach(name=>{
    document.querySelectorAll(`input[name="${name}"]`).forEach(r=>{r.checked=false;r.wasChecked=false;});
  });
@@ -2084,8 +2378,9 @@ function resetF2(){
  saveFormLocalStorage('f2');
 }
 
-function resetF3(){
- ['f3_nombre','f3_ubicacion','f3_fecha','f3_tel','f3_obs'].forEach(id=>document.getElementById(id).value='');
+function resetF3(preserveProvider=false){
+ if (!preserveProvider) ['f3_nombre','f3_ubicacion','f3_fecha','f3_tel'].forEach(id=>document.getElementById(id).value='');
+ document.getElementById('f3_obs').value='';
  ['f3_calidad','f3_oport_entrega','f3_oport_cantidad','f3_oport_unidades','f3_atencion'].forEach(name=>{
    document.querySelectorAll(`input[name="${name}"]`).forEach(r=>{r.checked=false;r.wasChecked=false;});
  });
@@ -2112,9 +2407,27 @@ function mostrar(id){
  ['f1','f2','f3'].forEach(x=>document.getElementById(x).classList.add('hidden'));
  document.getElementById(id).classList.remove('hidden');
  loadSavedEntries(id);
- if (id === 'f1') initF1Dashboard();
- else if (id === 'f2') initF2Dashboard();
- else if (id === 'f3') initF3Dashboard();
+ if (id === 'f1') {
+   loadProviderDirectory();
+   document.getElementById('f1_basic_form_table')?.classList.add('hidden');
+   document.getElementById('f1_evaluation_details')?.classList.add('hidden');
+   document.getElementById('f1_dashboard')?.classList.add('hidden');
+   document.getElementById('f1_selected_provider').textContent = 'Selecciona un proveedor para abrir la evaluación.';
+ }
+ else if (id === 'f2') {
+   loadProviderDirectoryFor('f2');
+   document.getElementById('f2_basic_form_table')?.classList.add('hidden');
+   document.getElementById('f2_evaluation_details')?.classList.add('hidden');
+   document.getElementById('f2_dashboard')?.classList.add('hidden');
+   document.getElementById('f2_selected_provider').textContent = 'Selecciona un proveedor para abrir el seguimiento.';
+ }
+ else if (id === 'f3') {
+   loadProviderDirectoryFor('f3');
+   document.getElementById('f3_basic_form_table')?.classList.add('hidden');
+   document.getElementById('f3_evaluation_details')?.classList.add('hidden');
+   document.getElementById('f3_dashboard')?.classList.add('hidden');
+   document.getElementById('f3_selected_provider').textContent = 'Selecciona un proveedor para abrir la evaluación.';
+ }
 }
 
 let f1_ctx, f2_ctx, f3_ctx;
@@ -2197,5 +2510,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
+
 
 
