@@ -92,6 +92,8 @@ button.danger:hover{background:#b91c1c;}
 .provider-card:hover{background:#eaf7f3;color:#075f5e;border-color:#8fcac0;}
 .provider-card strong,.provider-card small{display:block;}
 .provider-card small{margin-top:5px;color:#64748b;font-weight:500;}
+.back-button{background:#eef5f4;color:#174b52;border:1px solid #cfe3df;}
+.back-button:hover{background:#dcefeb;color:#123d43;}
 .chart-shell{height:330px;background:#fbfefd;border:1px solid #dce9e7;border-radius:16px;padding:14px;}
 #annual_performance_chart{height:360px!important;}
 @media (max-width:880px){
@@ -134,6 +136,7 @@ button.danger:hover{background:#b91c1c;}
   let firebaseInitPromise = null;
   const lastSavedEntries = { f1: [], f2: [], f3: [] };
   let selectedProvider = null;
+  let selectedProviderCategory = '';
 
   function updateFirebaseStatus(message, isError = false) {
     const statusEl = document.getElementById('firebase_status');
@@ -696,7 +699,21 @@ button.danger:hover{background:#b91c1c;}
     document.getElementById('provider_selected_box').classList.remove('hidden');
     document.getElementById('provider_selected_name').textContent = provider.provider_name || provider.f1_nombre || 'Proveedor seleccionado';
     document.getElementById('provider_selected_id').textContent = provider.provider_identification || provider.f2_nit || 'Sin identificación';
+    document.getElementById('provider_cv_details').classList.remove('hidden');
+    document.getElementById('provider_cv_details_content').innerHTML = [
+      `<strong>Nombre:</strong> ${escapeHtml(provider.provider_name || '')}`,
+      `<strong>Identificación:</strong> ${escapeHtml(provider.provider_identification || '')}`,
+      `<strong>Razón social:</strong> ${escapeHtml(provider.provider_razon_social || '')}`,
+      `<strong>Dirección:</strong> ${escapeHtml(provider.provider_address || '')}`,
+      `<strong>Ciudad:</strong> ${escapeHtml(provider.provider_city || '')}`,
+      `<strong>Teléfono:</strong> ${escapeHtml(provider.provider_phone || '')}`,
+      `<strong>Correo:</strong> ${escapeHtml(provider.provider_email || '')}`,
+      `<strong>Contacto:</strong> ${escapeHtml(provider.provider_contact || '')}`,
+      `<strong>Servicio:</strong> ${escapeHtml(provider.provider_service || '')}`,
+      `<strong>Observaciones:</strong> ${escapeHtml(provider.provider_notes || '')}`
+    ].join('<br>');
     document.getElementById('provider_form_choices').classList.remove('hidden');
+    document.getElementById('providerDirectory').classList.remove('hidden');
     document.getElementById('provider_directory_status').textContent = 'Proveedor seleccionado. Elige el formulario que deseas diligenciar.';
     ['f1', 'f2', 'f3'].forEach(formId => document.getElementById(formId).classList.add('hidden'));
   }
@@ -706,7 +723,9 @@ button.danger:hover{background:#b91c1c;}
     if (!list || !(await ensureFirebaseAuth())) return;
     try {
       const snapshot = await db.collection('proveedores_colegio').orderBy('provider_name').get();
-      const providers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const providers = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(provider => !selectedProviderCategory || provider.provider_type === selectedProviderCategory);
       list.innerHTML = providers.length ? providers.map(provider => {
         const payload = JSON.stringify(provider).replace(/'/g, '&#39;');
         return `<button type="button" class="provider-card" onclick='selectCentralProvider(${payload})'><strong>${escapeHtml(provider.provider_name)}</strong><small>${escapeHtml(provider.provider_identification || 'Sin identificación')} · ${escapeHtml(provider.provider_service || 'Proveedor')}</small></button>`;
@@ -722,6 +741,11 @@ button.danger:hover{background:#b91c1c;}
     const provider = { formId: 'provider_central', savedAtLocal: new Date().toISOString() };
     ids.forEach(id => { provider[id] = document.getElementById(id).value.trim(); });
     provider.provider_notes = document.getElementById('provider_notes').value.trim();
+    provider.provider_type = selectedProviderCategory;
+    if (!selectedProviderCategory) {
+      alert('Primero selecciona si es proveedor por compras o por servicio.');
+      return;
+    }
     if (!provider.provider_name || !provider.provider_identification || !provider.provider_address || !provider.provider_phone || !provider.provider_service) {
       alert('Completa nombre, identificación, dirección, teléfono y servicio del proveedor.');
       return;
@@ -753,6 +777,61 @@ button.danger:hover{background:#b91c1c;}
       return;
     }
     mostrar(formId);
+  }
+
+  function showProviderCategories() {
+    document.getElementById('providerLanding').classList.add('hidden');
+    document.getElementById('providerDirectory').classList.remove('hidden');
+    document.getElementById('providerCategoryChoices').classList.remove('hidden');
+    document.getElementById('providerSetupPanel').classList.add('hidden');
+    document.getElementById('providerCvButton').classList.add('hidden');
+    document.getElementById('provider_form_choices').classList.add('hidden');
+    document.getElementById('provider_cv_details').classList.add('hidden');
+    selectedProvider = null;
+    selectedProviderCategory = '';
+    document.getElementById('central_provider_list').innerHTML = '<p style="margin:16px 0 0;color:#64748b;">Selecciona una categoría para ver sus proveedores.</p>';
+  }
+
+  function selectProviderCategory(category) {
+    selectedProviderCategory = category;
+    document.getElementById('providerCategoryChoices').classList.add('hidden');
+    document.getElementById('providerSetupPanel').classList.add('hidden');
+    document.getElementById('providerCvButton').classList.remove('hidden');
+    document.getElementById('providerDirectoryTitle').textContent = category === 'compras' ? 'PROVEEDORES POR COMPRAS' : 'PROVEEDORES POR SERVICIO';
+    document.getElementById('provider_directory_status').textContent = `Agrega o selecciona un proveedor por ${category}.`;
+    document.getElementById('provider_form_choices').classList.add('hidden');
+    document.getElementById('provider_selected_box').classList.add('hidden');
+    document.getElementById('provider_cv_details').classList.add('hidden');
+    document.getElementById('provider_form_f1').classList.toggle('hidden', category !== 'servicio');
+    document.getElementById('provider_form_f2').classList.toggle('hidden', category !== 'servicio');
+    document.getElementById('provider_form_f3').classList.toggle('hidden', category !== 'compras');
+    loadCentralProviderDirectory();
+  }
+
+  function openProviderCvForm() {
+    document.getElementById('providerCvButton').classList.add('hidden');
+    document.getElementById('providerSetupPanel').classList.remove('hidden');
+    document.getElementById('provider_directory_status').textContent = 'Completa la hoja de vida y guárdala en Firebase.';
+  }
+
+  function returnToProviderCategories() {
+    ['f1', 'f2', 'f3'].forEach(formId => document.getElementById(formId).classList.add('hidden'));
+    document.getElementById('providerDirectory').classList.remove('hidden');
+    document.getElementById('providerLanding').classList.add('hidden');
+    document.getElementById('providerCategoryChoices').classList.add('hidden');
+    document.getElementById('providerCvButton').classList.remove('hidden');
+    document.getElementById('providerSetupPanel').classList.add('hidden');
+    document.getElementById('provider_form_choices').classList.remove('hidden');
+    document.getElementById('provider_directory_status').textContent = 'Has regresado al paso anterior.';
+    loadCentralProviderDirectory();
+  }
+
+  function returnToProviderLanding() {
+    ['f1', 'f2', 'f3'].forEach(formId => document.getElementById(formId).classList.add('hidden'));
+    document.getElementById('providerDirectory').classList.add('hidden');
+    document.getElementById('providerLanding').classList.remove('hidden');
+    selectedProvider = null;
+    selectedProviderCategory = '';
   }
 
   function showF1Evaluation(provider) {
@@ -1728,16 +1807,36 @@ button.danger:hover{background:#b91c1c;}
 
 <!-- MENU -->
 <div id="menu" class="formato hidden button-row">
-<button onclick="openSelectedForm('f1')">Evaluación Prestador de Servicios</button>
-<button onclick="openSelectedForm('f2')">Seguimiento de Proveedores</button>
-<button onclick="openSelectedForm('f3')">Evaluación de Compras</button>
+<button onclick="showProviderCategories()">Proveedores</button>
 <button onclick="logout()">Cerrar Sesión</button>
 </div>
 
+<div id="providerLanding" class="formato hidden">
+  <h3 id="providerLandingTitle" class="center">PROVEEDORES</h3>
+  <p id="providerLandingIntro" class="form-note center">Selecciona el tipo de proveedor para administrar su hoja de vida y sus evaluaciones.</p>
+  <div id="providerLandingChoices" class="button-row hidden" style="justify-content:center;margin-top:24px;">
+    <button type="button" onclick="selectProviderCategory('compras')">Proveedor por compras</button>
+    <button type="button" onclick="selectProviderCategory('servicio')">Proveedor por servicio</button>
+  </div>
+  <div id="providerLandingMainButton" class="button-row" style="justify-content:center;margin-top:24px;">
+    <button type="button" onclick="showProviderCategories()">Proveedores</button>
+  </div>
+</div>
+
 <div id="providerDirectory" class="formato hidden">
-  <h3 class="center">PROVEEDORES COLEGIO FRANCISCO PALAU</h3>
+  <div class="button-row" style="justify-content:flex-start;margin-top:0;margin-bottom:18px;">
+    <button type="button" class="back-button" onclick="returnToProviderLanding()">← Proveedores</button>
+  </div>
+  <h3 id="providerDirectoryTitle" class="center">PROVEEDORES COLEGIO FRANCISCO PALAU</h3>
   <p class="form-note center">Registra la hoja de vida del proveedor y selecciónalo para diligenciar una evaluación.</p>
-  <div class="provider-setup">
+  <div id="providerCategoryChoices" class="button-row" style="justify-content:center;margin:24px 0;">
+    <button type="button" onclick="selectProviderCategory('compras')">Proveedor por compras</button>
+    <button type="button" onclick="selectProviderCategory('servicio')">Proveedor por servicio</button>
+  </div>
+  <div id="providerCvButton" class="button-row hidden" style="justify-content:center;margin:24px 0;">
+    <button type="button" onclick="openProviderCvForm()">Hoja de vida del proveedor</button>
+  </div>
+  <div id="providerSetupPanel" class="provider-setup hidden">
     <h5>Hoja de vida del proveedor</h5>
     <div class="provider-basic-grid">
       <label>Nombre completo / empresa<input id="provider_name" placeholder="Nombre del proveedor"></label>
@@ -1757,12 +1856,16 @@ button.danger:hover{background:#b91c1c;}
     <strong id="provider_selected_name">-</strong>
     <span id="provider_selected_id" style="color:#64748b;"></span>
   </div>
+  <div id="provider_cv_details" class="stat-box hidden" style="margin-top:14px;">
+    <h4 style="margin-bottom:12px;">Hoja de vida</h4>
+    <div id="provider_cv_details_content" style="color:#637083;line-height:1.7;"></div>
+  </div>
   <div id="provider_form_choices" class="hidden" style="margin-top:18px;">
     <h4>Selecciona el formulario</h4>
     <div class="button-row" style="justify-content:flex-start;">
-      <button onclick="openSelectedForm('f1')">Prestador de Servicios</button>
-      <button onclick="openSelectedForm('f2')">Seguimiento de Proveedores</button>
-      <button onclick="openSelectedForm('f3')">Evaluación de Compras</button>
+      <button id="provider_form_f1" onclick="openSelectedForm('f1')">Prestador de Servicios</button>
+      <button id="provider_form_f2" onclick="openSelectedForm('f2')">Seguimiento de Proveedores</button>
+      <button id="provider_form_f3" onclick="openSelectedForm('f3')">Evaluación de Compras</button>
     </div>
   </div>
   <div id="provider_directory_status" style="margin-top:14px;color:#2563eb;font-weight:700;"></div>
@@ -1804,6 +1907,9 @@ button.danger:hover{background:#b91c1c;}
 <!-- FORMATO 1 -->
 <div id="f1" class="formato hidden">
 <h4 class="center">FORMATO DE EVALUACIÓN PARA PRESTADOR DE SERVICIOS</h4>
+<div class="button-row" style="justify-content:flex-start;margin-top:0;">
+  <button type="button" class="back-button" onclick="returnToProviderCategories()">← Atrás</button>
+</div>
 
 <div class="provider-setup hidden">
   <h5>Agregar proveedor</h5>
@@ -1940,6 +2046,9 @@ button.danger:hover{background:#b91c1c;}
 <!-- FORMATO 2 -->
 <div id="f2" class="formato hidden">
 <h4 class="center">FORMATO DE SEGUIMIENTO A PROVEEDORES</h4>
+<div class="button-row" style="justify-content:flex-start;margin-top:0;">
+  <button type="button" class="back-button" onclick="returnToProviderCategories()">← Atrás</button>
+</div>
 
 <div class="provider-setup hidden">
   <h5>Agregar proveedor</h5>
@@ -2086,6 +2195,9 @@ button.danger:hover{background:#b91c1c;}
 <!-- FORMATO 3 -->
 <div id="f3" class="formato hidden">
 <h4 class="center">EVALUACIÓN DE PROVEEDORES POR COMPRAS</h4>
+<div class="button-row" style="justify-content:flex-start;margin-top:0;">
+  <button type="button" class="back-button" onclick="returnToProviderCategories()">← Atrás</button>
+</div>
 
 <div class="provider-setup hidden">
   <h5>Agregar proveedor</h5>
@@ -2543,8 +2655,7 @@ const menu=document.getElementById('menu');
 if(userInput.value==='admin' && passInput.value==='1234'){
 loginBox.classList.add('hidden');
 menu.classList.add('hidden');
-document.getElementById('providerDirectory').classList.remove('hidden');
-loadCentralProviderDirectory();
+document.getElementById('providerLanding').classList.remove('hidden');
 }else{alert('Incorrecto');}
 }
 
