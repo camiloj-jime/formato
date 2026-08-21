@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -92,6 +92,8 @@ button.danger:hover{background:#b91c1c;}
 .provider-card:hover{background:#eaf7f3;color:#075f5e;border-color:#8fcac0;}
 .provider-card strong,.provider-card small{display:block;}
 .provider-card small{margin-top:5px;color:#64748b;font-weight:500;}
+.provider-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.provider-card-actions button{margin:0;padding:8px 12px;font-size:.8rem;}
 .back-button{background:#eef5f4;color:#174b52;border:1px solid #cfe3df;}
 .back-button:hover{background:#dcefeb;color:#123d43;}
 .chart-shell{height:330px;background:#fbfefd;border:1px solid #dce9e7;border-radius:16px;padding:14px;}
@@ -137,6 +139,7 @@ button.danger:hover{background:#b91c1c;}
   const lastSavedEntries = { f1: [], f2: [], f3: [] };
   let selectedProvider = null;
   let selectedProviderCategory = '';
+  let editingProviderId = null;
 
   function updateFirebaseStatus(message, isError = false) {
     const statusEl = document.getElementById('firebase_status');
@@ -718,6 +721,48 @@ button.danger:hover{background:#b91c1c;}
     ['f1', 'f2', 'f3'].forEach(formId => document.getElementById(formId).classList.add('hidden'));
   }
 
+  function editCentralProvider(provider) {
+    editingProviderId = provider.id;
+    const ids = ['provider_name', 'provider_identification', 'provider_razon_social', 'provider_address', 'provider_city', 'provider_phone', 'provider_email', 'provider_contact', 'provider_service'];
+    ids.forEach(id => { document.getElementById(id).value = provider[id] || ''; });
+    document.getElementById('provider_notes').value = provider.provider_notes || '';
+    document.getElementById('providerSetupPanel').classList.remove('hidden');
+    document.getElementById('providerCvButton').classList.add('hidden');
+    document.getElementById('provider_save_button').textContent = 'Actualizar hoja de vida';
+    document.getElementById('provider_cancel_edit').classList.remove('hidden');
+    document.getElementById('provider_directory_status').textContent = 'Editando la hoja de vida. Guarda los cambios para actualizarlos en Firebase.';
+    window.scrollTo({ top: document.getElementById('providerSetupPanel').offsetTop - 20, behavior: 'smooth' });
+  }
+
+  function cancelProviderEdit() {
+    editingProviderId = null;
+    document.getElementById('providerSetupPanel').classList.add('hidden');
+    document.getElementById('providerCvButton').classList.remove('hidden');
+    document.getElementById('provider_save_button').textContent = 'Guardar hoja de vida';
+    document.getElementById('provider_cancel_edit').classList.add('hidden');
+  }
+
+  async function deleteCentralProvider(providerId, providerName) {
+    if (!providerId) return;
+    if (!confirm(`¿Eliminar la hoja de vida de ${providerName || 'este proveedor'}? Las evaluaciones históricas se conservarán.`)) return;
+    if (!(await ensureFirebaseAuth())) return;
+    try {
+      await db.collection('proveedores_colegio').doc(providerId).delete();
+      if (selectedProvider && selectedProvider.id === providerId) {
+        selectedProvider = null;
+        document.getElementById('provider_selected_box').classList.add('hidden');
+        document.getElementById('provider_cv_details').classList.add('hidden');
+        document.getElementById('provider_form_choices').classList.add('hidden');
+      }
+      if (editingProviderId === providerId) cancelProviderEdit();
+      document.getElementById('provider_directory_status').textContent = 'Hoja de vida eliminada de Firebase.';
+      await loadCentralProviderDirectory();
+    } catch (error) {
+      console.error('Error eliminando hoja de vida:', error);
+      document.getElementById('provider_directory_status').textContent = 'No se pudo eliminar la hoja de vida.';
+    }
+  }
+
   async function loadCentralProviderDirectory() {
     const list = document.getElementById('central_provider_list');
     if (!list || !(await ensureFirebaseAuth())) return;
@@ -728,7 +773,7 @@ button.danger:hover{background:#b91c1c;}
         .filter(provider => !selectedProviderCategory || provider.provider_type === selectedProviderCategory);
       list.innerHTML = providers.length ? providers.map(provider => {
         const payload = JSON.stringify(provider).replace(/'/g, '&#39;');
-        return `<button type="button" class="provider-card" onclick='selectCentralProvider(${payload})'><strong>${escapeHtml(provider.provider_name)}</strong><small>${escapeHtml(provider.provider_identification || 'Sin identificación')} · ${escapeHtml(provider.provider_service || 'Proveedor')}</small></button>`;
+        return `<div class="provider-card" role="button" tabindex="0" onclick='selectCentralProvider(${payload})'><strong>${escapeHtml(provider.provider_name)}</strong><small>${escapeHtml(provider.provider_identification || 'Sin identificación')} · ${escapeHtml(provider.provider_service || 'Proveedor')}</small><div class="provider-card-actions"><button type="button" class="secondary" onclick='event.stopPropagation(); editCentralProvider(${payload})'>Editar</button><button type="button" class="danger" onclick='event.stopPropagation(); deleteCentralProvider(${JSON.stringify(provider.id)},${JSON.stringify(provider.provider_name)})'>Eliminar</button></div></div>`;
       }).join('') : '<p style="margin:16px 0 0;color:#64748b;">Aún no hay proveedores registrados.</p>';
     } catch (error) {
       console.error('Error cargando hojas de vida:', error);
@@ -762,12 +807,31 @@ button.danger:hover{background:#b91c1c;}
     provider.f3_ubicacion = provider.provider_address;
     provider.f3_tel = provider.provider_phone;
     const status = document.getElementById('provider_directory_status');
-    status.textContent = 'Guardando hoja de vida en Firebase...';
-    const result = await saveFormToFirebase('proveedores_colegio', provider);
-    if (!result || !result.ok) { status.textContent = 'No se pudo guardar la hoja de vida.'; return; }
-    status.textContent = 'Hoja de vida guardada correctamente en Firebase.';
+    let result;
+    if (editingProviderId) {
+      if (!(await ensureFirebaseAuth())) return;
+      try {
+        await db.collection('proveedores_colegio').doc(editingProviderId).update({ ...provider, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        result = { ok: true, id: editingProviderId };
+        status.textContent = 'Hoja de vida actualizada correctamente en Firebase.';
+      } catch (error) {
+        console.error('Error actualizando hoja de vida:', error);
+        status.textContent = 'No se pudo actualizar la hoja de vida.';
+        return;
+      }
+    } else {
+      status.textContent = 'Guardando hoja de vida en Firebase...';
+      result = await saveFormToFirebase('proveedores_colegio', provider);
+      if (!result || !result.ok) { status.textContent = 'No se pudo guardar la hoja de vida.'; return; }
+      status.textContent = 'Hoja de vida guardada correctamente en Firebase.';
+    }
+    editingProviderId = null;
     ids.concat('provider_notes').forEach(id => { document.getElementById(id).value = ''; });
     await loadCentralProviderDirectory();
+    document.getElementById('provider_save_button').textContent = 'Guardar hoja de vida';
+    document.getElementById('provider_cancel_edit').classList.add('hidden');
+    document.getElementById('providerSetupPanel').classList.add('hidden');
+    document.getElementById('providerCvButton').classList.remove('hidden');
     selectCentralProvider({ id: result.id, ...provider });
   }
 
@@ -1850,7 +1914,7 @@ button.danger:hover{background:#b91c1c;}
       <label>Servicio / categoría<input id="provider_service" placeholder="Servicio o categoría"></label>
     </div>
     <label style="display:grid;gap:7px;margin-top:12px;font-weight:700;color:#334155;font-size:.86rem;">Observaciones<textarea id="provider_notes" placeholder="Información adicional del proveedor" style="min-height:90px;"></textarea></label>
-    <div class="button-row"><button type="button" onclick="addCentralProvider()">Guardar hoja de vida</button></div>
+    <div class="button-row"><button id="provider_save_button" type="button" onclick="addCentralProvider()">Guardar hoja de vida</button><button id="provider_cancel_edit" type="button" class="secondary hidden" onclick="cancelProviderEdit()">Cancelar edición</button></div>
   </div>
   <div id="provider_selected_box" class="stat-box hidden" style="border-left:4px solid #2563eb;">
     <strong id="provider_selected_name">-</strong>
